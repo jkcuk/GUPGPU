@@ -1,2 +1,2 @@
 # Ideal
-A web-based, GPU-powered, raytracer that simulates ideal optical components
+The premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components.
