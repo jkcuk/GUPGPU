@@ -1,2 +1,2 @@
-# GUGPU: Glasgow University Graphics Processing Unit
-The premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components, brought to you by Glasgow University.
+# GUPGPU: Glasgow University Physics Graphics Processing Unit
+The premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components, brought to you by Glasgow University's School of Physics & Astronomy.

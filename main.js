@@ -46,8 +46,9 @@ const fragmentShaderCode = await fragmentShaderCodeFile.text();
 const vertexShaderCodeFile = await fetch("./vertexShader.glsl");
 const vertexShaderCode = await vertexShaderCodeFile.text();
 
-let appName = 'GUGPU';
-let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components, brought to you by Glasgow University';
+let appName = 'GUPGPU';
+let appLongName = 'GUPGPU (Glasgow University Physics Graphics Processing Unit)';
+let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components';
 
 let scene;
 let renderer;
@@ -988,7 +989,7 @@ async function share() {
  */
 function createStatus() {
 	status = document.getElementById('status');
-	postStatus(`${appName} welcomes you!`);
+	postStatus(`${appLongName} welcomes you!`);
 }
 
 function postStatus(text) {
@@ -997,7 +998,7 @@ function postStatus(text) {
 
 	// show the text only for 3 seconds
 	statusTime = new Date().getTime();
-	setTimeout( () => { if(new Date().getTime() - statusTime > 2999) status.innerHTML = '&nbsp;'+appName+', University of Glasgow, <a href="https://github.com/jkcuk/'+appName+'">https://github.com/jkcuk/'+appName+'</a>' }, 3000);
+	setTimeout( () => { if(new Date().getTime() - statusTime > 2999) status.innerHTML = '&nbsp;'+appLongName+', <a href="https://github.com/jkcuk/'+appName+'">https://github.com/jkcuk/'+appName+'</a>' }, 3000);
 }
 
 function getInfoString() {
@@ -1015,7 +1016,8 @@ function getInfoString() {
 		// '<a href="https://www.flickr.com/photos/pano_philou/1041580126">"360-180 Glasgow University - Western Square"</a> by pano_philou<br>\n' +
 		'License: <a href="https://creativecommons.org/licenses/by-nc-sa/2.0/">CC BY-NC-SA 2.0 DEED</a><br>\n' +
 		// `<h4>${appName}</h4>\n` +
-		`<br>${appName} (University of Glasgow, <a href="https://github.com/jkcuk/${appName}">https://github.com/jkcuk/${appName}</a>) is ${appDescription}.`
+		`<br>${appLongName} is ${appDescription}.\n` +
+		`<br>Github repository: <a href="https://github.com/jkcuk/${appName}">https://github.com/jkcuk/${appName}</a>`
 		;
 }
 
