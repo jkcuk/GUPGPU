@@ -378,6 +378,11 @@ function updateUniforms() {
 
 	let t = 1e-3*Date.now();
 	raytracingSphere.uniforms.cylinderMantleShapes.value[0].nDirection = new THREE.Vector3( Math.cos(t), 0, Math.sin(t) );
+
+	raytracingSphere.uniforms.rectangleShapes.value[0].corner = new THREE.Vector3( -.5*Math.cos(3*t), -0.5, -1.-.5*Math.sin(3*t) );
+	raytracingSphere.uniforms.rectangleShapes.value[0].span1 = new THREE.Vector3( Math.cos(3*t), 0, Math.sin(3*t) );
+	raytracingSphere.uniforms.rectangleShapes.value[0].nNormal = new THREE.Vector3( -Math.sin(3*t), 0, Math.cos(3*t));
+	raytracingSphere.uniforms.thinCylLensSurfaces.value[0].nOpticalPowerDirection = new THREE.Vector3( Math.cos(2*t), 0, Math.sin(2*t) );
 	raytracingSphere.uniforms.backgroundTexture.value = backgroundTexture;
 
 	// create the points on the aperture
