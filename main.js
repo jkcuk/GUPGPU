@@ -46,8 +46,8 @@ const fragmentShaderCode = await fragmentShaderCodeFile.text();
 const vertexShaderCodeFile = await fetch("./vertexShader.glsl");
 const vertexShaderCode = await vertexShaderCodeFile.text();
 
-let appName = 'Ideal';
-let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components';
+let appName = 'GUGPU';
+let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components, brought to you by Glasgow University';
 
 let scene;
 let renderer;
