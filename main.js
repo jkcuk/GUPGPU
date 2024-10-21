@@ -46,8 +46,8 @@ const fragmentShaderCode = await fragmentShaderCodeFile.text();
 const vertexShaderCodeFile = await fetch("./vertexShader.glsl");
 const vertexShaderCode = await vertexShaderCodeFile.text();
 
-let appName = 'GPU raytracer';
-let appDescription = '"Much better than Vulkan!"';
+let appName = 'Ideal';
+let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components';
 
 let scene;
 let renderer;
