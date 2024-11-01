@@ -47,9 +47,9 @@ const fragmentShaderCode = await fragmentShaderCodeFile.text();
 const vertexShaderCodeFile = await fetch("./raytracing/vertexShader.glsl");
 const vertexShaderCode = await vertexShaderCodeFile.text();
 
-let appName = 'GUPGPU resonaTHOR';
-let appLongName = 'GUPGPU (Glasgow University Physics Graphics Processing Unit) resonaTHOR';
-let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates the view inside optical resonators';
+let appName = 'GUPGPU';
+let appLongName = 'GUPGPU (Glasgow University Physics Graphics Processing Unit)';
+let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer';
 
 let scene;
 let renderer;
