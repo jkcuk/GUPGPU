@@ -6,8 +6,8 @@ import { SphereShape } from './shapes/SphereShape.js';
 import { CylinderMantleShape } from './shapes/CylinderMantleShape.js';
 import { ColourSurface } from './surfaces/ColourSurface.js';
 import { MirrorSurface } from './surfaces/MirrorSurface.js';
-import { ThinLensSurface } from './surfaces/ThinLensSurface.js';
-import { ThinCylLensSurface } from './surfaces/ThinCylLensSurface.js';
+import { ThinFocussingSurface } from './surfaces/ThinFocussingSurface.js';
+import { CheckerboardSurface  } from './surfaces/CheckerboardSurface.js';
 
 class RaytracingScene {
 	// the scene objects
@@ -57,11 +57,11 @@ class RaytracingScene {
 	mirrorSurfaces = Array(CONST.MAX_MIRROR_SURFACES).fill( MirrorSurface.perfectMirrorSurface );	// the (planar) mirror surfaces
 	noOfMirrorSurfaces = 0;	// number of mirror surfaces
 
-	thinLensSurfaces = Array(CONST.MAX_THIN_LENS_SURFACES).fill( ThinLensSurface.idealThinLensSurface );	// the thin lens surfaces
-	noOfThinLensSurfaces = 0;
+	thinFocussingSurfaces = Array(CONST.MAX_THIN_FOCUSSING_SURFACES).fill( ThinFocussingSurface.idealThinLensSurface );	// the thin cylindrical-lens surfaces
+	noOfThinFocussingSurfaces = 0;
 
-	thinCylLensSurfaces = Array(CONST.MAX_THIN_CYL_LENS_SURFACES).fill( ThinCylLensSurface.idealThinCylLensSurface );	// the thin cylindrical-lens surfaces
-	noOfThinCylLensSurfaces = 0;
+	checkerboardSurfaces = Array(CONST.MAX_CHECKERBOARD_SURFACES).fill( CheckerboardSurface.blackWhiteCheckers );
+	noOfCheckerboardSurfaces = 0;
 
 	// to add a new surface type:
 	// 1) create a class that holds the parameters of the surface (e.g. class ColourSurface, defined in ColourSurface.js)
@@ -150,26 +150,28 @@ class RaytracingScene {
 		return this.noOfMirrorSurfaces++;
 	}
 
-	// add a new thin-lens surface and return its index
-	addThinLensSurface( thinLensSurface ) {
-		if(this.noOfThinLensSurfaces >= CONST.MAX_THIN_LENS_SURFACES) return null;
+	// add a new thin focussing surface and return its index
+	addThinFocussingSurface( thinFocussingSurface ) {
+		if(this.noOfThinFocussingSurfaces >= CONST.MAX_THIN_FOCUSSING_SURFACES) return null;
 
-		// add the new thin-lens surface
-		this.thinLensSurfaces[this.noOfThinLensSurfaces] = thinLensSurface;
+		// add the new thin focussing surface
+		this.thinFocussingSurfaces[this.noOfThinFocussingSurfaces] = thinFocussingSurface;
 		
 		// return its array index
-		return this.noOfThinLensSurfaces++;
+		return this.noOfThinFocussingSurfaces++;
 	}
 
-	// add a new thin-cylindrical-lens surface and return its index
-	addThinCylLensSurface( thinCylLensSurface ) {
-		if(this.noOfThinCylLensSurfaces >= CONST.MAX_THIN_CYL_LENS_SURFACES) return null;
-
-		// add the new thin-cylindrical-lens surface
-		this.thinCylLensSurfaces[this.noOfThinCylLensSurfaces] = thinCylLensSurface;
-		
-		// return its array index
-		return this.noOfThinCylLensSurfaces++;
-	}}
+		// add a new thin checkerboard surface and return its index
+		addCheckerboardSurface( checkerboardSurface ) {
+			if(this.noOfCheckerboardSurfaces >= CONST.MAX_CHECKERBOARD_SURFACES) return null;
+	
+			// add the new checkerboard surface
+			this.checkerboardSurfaces[this.noOfCheckerboardSurfaces] = checkerboardSurface;
+			
+			// return its array index
+			return this.noOfCheckerboardSurfaces++;
+		}
+	
+}
 
 export { RaytracingScene };

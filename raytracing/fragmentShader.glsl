@@ -3,14 +3,14 @@ precision highp float;
 #define PI 3.1415926538
 
 // these constants must take the same values as those defined in Constants.js
-#define MAX_SCENE_OBJECTS 10
-#define MAX_RECTANGLE_SHAPES 10
+#define MAX_SCENE_OBJECTS 50
+#define MAX_RECTANGLE_SHAPES 50
 #define MAX_SPHERE_SHAPES 10
-#define MAX_CYLINDER_MANTLE_SHAPES 10
+#define MAX_CHECKERBOARD_SURFACES 2
 #define MAX_COLOUR_SURFACES 10
+#define MAX_CYLINDER_MANTLE_SHAPES 10
 #define MAX_MIRROR_SURFACES 10
-#define MAX_THIN_LENS_SURFACES 10
-#define MAX_THIN_CYL_LENS_SURFACES 10
+#define MAX_THIN_FOCUSSING_SURFACES 10
 
 // shapes
 #define RECTANGLE_SHAPE 0
@@ -20,12 +20,17 @@ precision highp float;
 // surfaces
 #define COLOUR_SURFACE 0
 #define MIRROR_SURFACE 1
-#define THIN_LENS_SURFACE 2
-#define THIN_CYL_LENS_SURFACE 3
+#define THIN_FOCUSSING_SURFACE 2
+#define CHECKERBOARD_SURFACE 3
 
-// ThinLensOrMirrorSurface types
-#define IDEAL_SURFACE_TYPE 0
-#define PHASE_HOLOGRAM_SURFACE_TYPE 1
+// focussing types
+#define SPHERICAL_FOCUSSING_TYPE 0
+#define CYLINDRICAL_FOCUSSING_TYPE 1
+#define TORIC_FOCUSSING_TYPE 2
+
+// refraction types
+#define IDEAL_REFRACTION_TYPE 0
+#define PHASE_HOLOGRAM_REFRACTION_TYPE 1
 
 
 varying vec3 intersectionPoint;
@@ -52,6 +57,10 @@ uniform RectangleShape rectangleShapes[MAX_RECTANGLE_SHAPES];
 struct SphereShape {
 	vec3 centre;
 	float radius;
+	float radius2;	// radius^2
+	vec3 nTheta0;	// unit vector in the direction of theta = 0 (north pole)
+	vec3 nPhi0;	// unit vector in the direction of phi = 0 (on the equator)
+	vec3 nPhi90;	// unit vector in the direction of phi = 90° (on the equator)
 };
 uniform SphereShape sphereShapes[MAX_SPHERE_SHAPES];
 
@@ -59,10 +68,22 @@ struct CylinderMantleShape {
 	vec3 centre;
 	float radius;
 	float radius2;	// radius^2
-	vec3 nDirection;	// normalised direction
 	float length;
+	vec3 nAxis;	// unit vector in cylinder-axis direction
+	vec3 nPhi0;	// unit vector in the direction of phi = 0 (perp. to nAxis)
+	vec3 nPhi90;	// unit vector in the direction of phi = 90° (perp. to nAxis)
 };
 uniform CylinderMantleShape cylinderMantleShapes[MAX_CYLINDER_MANTLE_SHAPES];
+
+struct CheckerboardSurface {
+	float width1;	// width (in surface coordinate 1 of the shape) of checkers in direction 1
+	float width2;	// width (in surface coordinate 2 of the shape) of checkers in direction 2
+	vec4 colourFactor1;	// multiplies the ray's colour if checkers of type 1 are intersected
+	vec4 colourFactor2;	// multiplies the ray's colour if checkers of type 2 are intersected
+	bool semitransparent1;	// true if the checkers of type 1 are semi-transparent, false otherwise
+	bool semitransparent2;	// true if the checkers of type 2 are semi-transparent, false otherwise
+};
+uniform CheckerboardSurface checkerboardSurfaces[MAX_CHECKERBOARD_SURFACES];
 
 struct ColourSurface {
 	vec4 colourFactor;
@@ -75,24 +96,16 @@ struct MirrorSurface {
 };
 uniform MirrorSurface mirrorSurfaces[MAX_MIRROR_SURFACES];
 
-struct ThinLensSurface {
+struct ThinFocussingSurface {
 	vec3 principalPoint;
 	float opticalPower;
-	bool reflective;
-	int type;	// one of IDEAL, PHASE_HOLOGRAM
-	vec4 colourFactor;
-};
-uniform ThinLensSurface thinLensSurfaces[MAX_THIN_LENS_SURFACES];	//  thinLensOrMirrorSurfaces[MAX_THIN_LENS_OR_MIRROR_SURFACES];
-
-struct ThinCylLensSurface {
-	vec3 principalPoint;
-	float opticalPower;
+	int focussingType;
 	vec3 nOpticalPowerDirection;
 	bool reflective;
-	int type;	// one of IDEAL, PHASE_HOLOGRAM
+	int refractionType;
 	vec4 colourFactor;
 };
-uniform ThinCylLensSurface thinCylLensSurfaces[MAX_THIN_CYL_LENS_SURFACES];
+uniform ThinFocussingSurface thinFocussingSurfaces[MAX_THIN_FOCUSSING_SURFACES];
 
 uniform int maxTraceLevel;
 
@@ -196,7 +209,7 @@ bool findIntersectionWithSphereShape(
 	vec3 v = s - sphereShape.centre;
 	// float a = dot(nD, nD);
 	float b = 2.*dot(nD, v);
-	float c = dot(v, v) - sphereShape.radius*sphereShape.radius;
+	float c = dot(v, v) - sphereShape.radius2;
 
 	float delta;
 	if(calculateDelta(
@@ -216,7 +229,7 @@ bool isWithinFiniteBitOfCylinderMantleShape(
 	vec3 position,
 	CylinderMantleShape cylinderMantleShape
 ) {
-	float a = dot( position - cylinderMantleShape.centre, cylinderMantleShape.nDirection );
+	float a = dot( position - cylinderMantleShape.centre, cylinderMantleShape.nAxis );
 	return ( abs(a) <= 0.5*cylinderMantleShape.length );
 }
 
@@ -230,7 +243,7 @@ bool findIntersectionWithCylinderMantleShape(
 	// first a quick check if the ray intersects the (infinitely long) cylinder mantle
 	// see https://en.wikipedia.org/wiki/Skew_lines#Distance
 
-	vec3 n = normalize(cross(cylinderMantleShape.nDirection, nD));	// a normalised vector perpendicular to both line and cylinder direction
+	vec3 n = normalize(cross(cylinderMantleShape.nAxis, nD));	// a normalised vector perpendicular to both line and cylinder direction
 	float distance = dot(s-cylinderMantleShape.centre, n);
 
 	if(distance > cylinderMantleShape.radius) return false;
@@ -238,8 +251,8 @@ bool findIntersectionWithCylinderMantleShape(
 	// there is an intersection with the *infinite* cylinder mantle; calculate delta such that intersection position = s + delta * d
 
 	// for maths see J's lab book 19/10/24
-	vec3 v = cross( cylinderMantleShape.nDirection, s-cylinderMantleShape.centre );
-	vec3 w = cross( cylinderMantleShape.nDirection, nD );
+	vec3 v = cross( cylinderMantleShape.nAxis, s-cylinderMantleShape.centre );
+	vec3 w = cross( cylinderMantleShape.nAxis, nD );
 	// coefficients of quadratic equation a delta^2 + b delta + c = 0
 	float a = dot(w, w);
 	float b = 2.*dot(v, w);
@@ -404,14 +417,14 @@ bool isInsideCylinderMantleShape(
 	vec3 position,
 	int cylinderMantleShapeIndex
 ) {
-	vec3 v = cross( position - cylinderMantleShapes[cylinderMantleShapeIndex].centre, cylinderMantleShapes[cylinderMantleShapeIndex].nDirection );
+	vec3 v = cross( position - cylinderMantleShapes[cylinderMantleShapeIndex].centre, cylinderMantleShapes[cylinderMantleShapeIndex].nAxis );
 	if( dot(v, v) <= cylinderMantleShapes[cylinderMantleShapeIndex].radius2 ) {
 		// position is inside the infinitely extended cylinder mantle
 
 		// check if it lies within the (actually finite) cylinder mantle
 		float a = dot( 
 			position - cylinderMantleShapes[cylinderMantleShapeIndex].centre, 
-			cylinderMantleShapes[cylinderMantleShapeIndex].nDirection 
+			cylinderMantleShapes[cylinderMantleShapeIndex].nAxis 
 		) / ( 0.5*cylinderMantleShapes[cylinderMantleShapeIndex].length );
 		return ( (-1.0 <= a) && (a <= 1.0) );
 	}
@@ -462,7 +475,7 @@ vec3 getNormal2CylinderMantleShape(
 	int cylinderMantleShapeIndex
 ) {
 	vec3 v = position - cylinderMantleShapes[cylinderMantleShapeIndex].centre;
-	return normalize( v - dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nDirection)*cylinderMantleShapes[cylinderMantleShapeIndex].nDirection );
+	return normalize( v - dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nAxis)*cylinderMantleShapes[cylinderMantleShapeIndex].nAxis );
 }
 
 // returns the normalised normal at the position
@@ -479,6 +492,59 @@ vec3 getNormal2SceneObject(
 }
 
 //
+// getSurfaceCoordinatesOn<...> functions
+//
+
+// returns (u, v), where position = corner + u*normalize(span1) + v*normalize(span2)
+vec2 getSurfaceCoordinatesOnRectangleShape(
+	vec3 position,
+	int rectangleShapeIndex
+) {
+	vec3 v = position - rectangleShapes[rectangleShapeIndex].corner;
+	return vec2(
+		dot(v, normalize(rectangleShapes[rectangleShapeIndex].span1)),
+		dot(v, normalize(rectangleShapes[rectangleShapeIndex].span2))
+	);
+}
+
+vec2 getSurfaceCoordinatesOnSphereShape(
+	vec3 position,
+	int sphereShapeIndex
+) {
+	vec3 v = normalize(position - sphereShapes[sphereShapeIndex].centre);
+
+	return vec2(
+		acos(dot(v, sphereShapes[sphereShapeIndex].nTheta0)),	// theta
+		atan(dot(v, sphereShapes[sphereShapeIndex].nPhi90), dot(v, sphereShapes[sphereShapeIndex].nPhi0))	// phi
+	);
+}
+
+vec2 getSurfaceCoordinatesOnCylinderMantleShape(
+	vec3 position,
+	int cylinderMantleShapeIndex
+) {
+	vec3 v = position - cylinderMantleShapes[cylinderMantleShapeIndex].centre;
+
+	return vec2(
+		acos(dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nAxis)),	// theta
+		atan(dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nPhi90), dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nPhi0))	// phi
+	);
+}
+
+// returns the surface coordinates at the position
+vec2 getSurfaceCoordinatesOnSceneObject(
+	vec3 position,
+	int sceneObjectIndex
+) {
+	int shapeType = sceneObjects[sceneObjectIndex].shapeType;
+	int shapeIndex = sceneObjects[sceneObjectIndex].shapeIndex;
+	if( shapeType == RECTANGLE_SHAPE ) return getSurfaceCoordinatesOnRectangleShape(position, shapeIndex);
+	else if( shapeType == SPHERE_SHAPE ) return getSurfaceCoordinatesOnSphereShape(position, shapeIndex);
+	else if( shapeType == CYLINDER_MANTLE_SHAPE ) return getSurfaceCoordinatesOnCylinderMantleShape(position, shapeIndex);
+	return vec2(0, 0);
+}
+
+//
 // interactWith<...> functions
 //
 
@@ -491,7 +557,7 @@ void interactWithThinLensOrMirrorSurface(
 	float opticalPower,
 	float reflectionFactor
 ) {
-	if(type == IDEAL_SURFACE_TYPE) {
+	if(type == IDEAL_REFRACTION_TYPE) {
 		// ideal thin lens/mirror
 
 		// "normalise" the direction such that the magnitude of the "nD component" is 1
@@ -505,7 +571,7 @@ void interactWithThinLensOrMirrorSurface(
 		// the 3D deflected direction comprises the transverse components and a n component of magnitude 1
 		// and the same sign as d1N = dot(d, nHat)
 		nD = normalize(d1T - pi*opticalPower + nN*reflectionFactor*d1N);	// replace d1N with sign(d1N) if d1 is differently normalised
-	} else if(type == PHASE_HOLOGRAM_SURFACE_TYPE) {
+	} else if(type == PHASE_HOLOGRAM_REFRACTION_TYPE) {
 		// phase hologram
 		// nD is already normalised as required
 		float nDN = dot(nD, nN);	// the nN component of nD
@@ -519,44 +585,52 @@ void interactWithThinLensOrMirrorSurface(
 	}
 }
 
-bool interactWithThinLensSurface(
+bool interactWithThinFocussingSurface(
  	inout vec3 s,	// intersection position; out value becomes new ray start point
 	inout vec3 nD,	// normalised ray direction 
 	inout vec4 c,	// colour/brightness
 	vec3 nN,	// normalised (outwards-facing) normal
-	int thinLensSurfaceIndex
+	int thinFocussingSurfaceIndex
 ) {
-	interactWithThinLensOrMirrorSurface(
- 		s - thinLensSurfaces[thinLensSurfaceIndex].principalPoint,	// I-P, i.e. the vector from the principal point P to the intersection point I
-		nD,	// normalised ray direction 
-		c,	// colour/brightness
-		nN,	// normalised (outwards-facing) normal
-		thinLensSurfaces[thinLensSurfaceIndex].type,	// type
-		thinLensSurfaces[thinLensSurfaceIndex].opticalPower,	// opticalPower
-		(thinLensSurfaces[thinLensSurfaceIndex].reflective)?-1.0:1.0	// reflectionFactor; +1 = transmissive
-	);
-	c *= thinLensSurfaces[thinLensSurfaceIndex].colourFactor;
-	return true;	// keep raytracing
-}
+	vec3 pi = s - thinFocussingSurfaces[thinFocussingSurfaceIndex].principalPoint;
 
-bool interactWithThinCylLensSurface(
- 	inout vec3 s,	// intersection position; out value becomes new ray start point
-	inout vec3 nD,	// normalised ray direction 
-	inout vec4 c,	// colour/brightness
-	vec3 nN,	// normalised (outwards-facing) normal
-	int thinCylLensSurfaceIndex
-) {
-	vec3 pi = s - thinCylLensSurfaces[thinCylLensSurfaceIndex].principalPoint;
-	interactWithThinLensOrMirrorSurface(
- 		dot(pi, thinCylLensSurfaces[thinCylLensSurfaceIndex].nOpticalPowerDirection)*thinCylLensSurfaces[thinCylLensSurfaceIndex].nOpticalPowerDirection,	// I-P, i.e. the vector from the principal point P to the intersection point I
-		nD,	// normalised ray direction 
-		c,	// colour/brightness
-		nN,	// normalised (outwards-facing) normal
-		thinCylLensSurfaces[thinCylLensSurfaceIndex].type,	// type
-		thinCylLensSurfaces[thinCylLensSurfaceIndex].opticalPower,	// opticalPower
-		(thinCylLensSurfaces[thinCylLensSurfaceIndex].reflective)?-1.0:1.0	// reflectionFactor; +1 = transmissive
-	);
-	c *= thinCylLensSurfaces[thinCylLensSurfaceIndex].colourFactor;
+	// is it a non-spherical focussing surface?
+	if( thinFocussingSurfaces[thinFocussingSurfaceIndex].focussingType == CYLINDRICAL_FOCUSSING_TYPE ) {
+		pi = dot(pi, thinFocussingSurfaces[thinFocussingSurfaceIndex].nOpticalPowerDirection)*thinFocussingSurfaces[thinFocussingSurfaceIndex].nOpticalPowerDirection;
+	} else if( thinFocussingSurfaces[thinFocussingSurfaceIndex].focussingType == TORIC_FOCUSSING_TYPE ) {
+		// TODO
+	}
+
+	float reflectionFactor = (thinFocussingSurfaces[thinFocussingSurfaceIndex].reflective)?-1.0:1.0;
+
+	if(thinFocussingSurfaces[thinFocussingSurfaceIndex].refractionType == IDEAL_REFRACTION_TYPE) {
+		// ideal thin lens/mirror
+
+		// "normalise" the direction such that the magnitude of the "nD component" is 1
+		vec3 d1 = nD/abs(dot(nD, nN));
+
+		// calculate the "nN component" of d1, which is of magnitude 1 but the sign can be either + or -
+		float d1N = dot(d1, nN);
+
+		vec3 d1T = d1 - nN*d1N;	// the transverse (perpendicular to nN) part of d1
+
+		// the 3D deflected direction comprises the transverse components and a n component of magnitude 1
+		// and the same sign as d1N = dot(d, nHat)
+		nD = normalize(d1T - pi*thinFocussingSurfaces[thinFocussingSurfaceIndex].opticalPower + nN*reflectionFactor*d1N);	// replace d1N with sign(d1N) if d1 is differently normalised
+	} else if(thinFocussingSurfaces[thinFocussingSurfaceIndex].refractionType == PHASE_HOLOGRAM_REFRACTION_TYPE) {
+		// phase hologram
+		// nD is already normalised as required
+		float nDN = dot(nD, nN);	// the nN component of nD
+		
+		// the transverse (perpendicular to nN) part of the outgoing light-ray direction
+		vec3 dT = nD - nN*nDN - pi*thinFocussingSurfaces[thinFocussingSurfaceIndex].opticalPower;
+
+		// from the transverse direction, construct a 3D vector by setting the n component such that the length
+		// of the vector is 1
+		nD = normalize(dT + nN*reflectionFactor*sign(nDN)*sqrt(1.0 - dot(dT, dT)));
+	}
+
+	c *= thinFocussingSurfaces[thinFocussingSurfaceIndex].colourFactor;
 	return true;	// keep raytracing
 }
 
@@ -577,28 +651,39 @@ bool interactWithSurface(
 		nD -= 2.0*dot(nD, n)*n; // should already be normalized; alternative: reflect( normalize(d), vec3(1,0,1));
 		return true;	// keep raytracing
 	}
-	else if( sceneObjects[sceneObjectIndex].surfaceType == THIN_LENS_SURFACE ) {
-		return interactWithThinLensSurface(
+	else if( sceneObjects[sceneObjectIndex].surfaceType == THIN_FOCUSSING_SURFACE ) {
+		return interactWithThinFocussingSurface(
 			s,	// intersection position; out value becomes new ray start point
 			nD,	// normalised ray direction 
 			c,	// colour/brightness
 			normalize(getNormal2SceneObject( s, sceneObjectIndex )),	// normalised (outwards-facing) normal
-			sceneObjects[sceneObjectIndex].surfaceIndex	// thinLensSurfaceIndex
+			sceneObjects[sceneObjectIndex].surfaceIndex	// thinFocussingSurfaceIndex
 		);
 	}
-	else if( sceneObjects[sceneObjectIndex].surfaceType == THIN_CYL_LENS_SURFACE ) {
-		return interactWithThinCylLensSurface(
-			s,	// intersection position; out value becomes new ray start point
-			nD,	// normalised ray direction 
-			c,	// colour/brightness
-			normalize(getNormal2SceneObject( s, sceneObjectIndex )),	// normalised (outwards-facing) normal
-			sceneObjects[sceneObjectIndex].surfaceIndex	// thinCylLensSurfaceIndex
-		);
+	else if( sceneObjects[sceneObjectIndex].surfaceType == CHECKERBOARD_SURFACE ) {
+		CheckerboardSurface cs = checkerboardSurfaces[sceneObjects[sceneObjectIndex].surfaceIndex];
+		vec2 uv = getSurfaceCoordinatesOnSceneObject(
+			s,	// position
+			sceneObjectIndex
+		) / vec2(cs.width1, cs.width2);
+		// if( (2.*floor( mod( uv.x, 2. )) - 1.) * (2.*floor( mod( uv.y, 2. )) - 1.) == -1. ) {
+		uv = 2.*floor( mod( getSurfaceCoordinatesOnSceneObject(
+			s,	// position
+			sceneObjectIndex
+		) / vec2(cs.width1, cs.width2) , 2.)) - 1.;
+		if( uv.x * uv.y == -1. ) {
+		// if(mod(uv.x, 2.) < 1.) {
+			c *= cs.colourFactor1;
+			return cs.semitransparent1;
+		} else {
+			c *= cs.colourFactor2;
+			return cs.semitransparent2;
+		}
 	}
 	
 	// all surface types should be dealt with by now
 	// if this code is reached, then that isn't the case
-	c *= vec4(1, .4, 0, 1);	// return red
+	c *= vec4(1, .4, 0, 1);	// return orange
 	return false;
 }
 
@@ -663,7 +748,11 @@ void main() {
 			originSceneObjectIndex = intersectingSceneObjectIndex;
 		}
 
-		if( continueRaytracing ) c *= getColorOfBackground(nD);
+		if( tl > 0 ) {
+			if( continueRaytracing ) c *= getColorOfBackground(nD);
+		} else {
+			c = vec4(0., 0., 0., 1.);
+		}
 
 		// finally, multiply by the brightness factor and add to gl_FragColor
 		gl_FragColor += c;

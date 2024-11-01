@@ -27,28 +27,29 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 // import { createMeshesFromInstancedMesh } from 'three/examples/jsm/utils/SceneUtils.js';
 
 import * as CONST from './raytracing/Constants.js';
+import { Util } from './raytracing/Util.js';
 import { SceneObject } from './raytracing/SceneObject.js';
 import { RectangleShape } from './raytracing/shapes/RectangleShape.js';
 import { SphereShape } from './raytracing/shapes/SphereShape.js';
 import { CylinderMantleShape } from './raytracing/shapes/CylinderMantleShape.js';
 import { ColourSurface } from './raytracing/surfaces/ColourSurface.js';
 import { MirrorSurface } from './raytracing/surfaces/MirrorSurface.js';
-import { ThinLensSurface } from './raytracing/surfaces/ThinLensSurface.js';
-import { ThinCylLensSurface } from './raytracing/surfaces/ThinCylLensSurface.js';
+import { ThinFocussingSurface } from './raytracing/surfaces/ThinFocussingSurface.js';
+import { CheckerboardSurface } from './raytracing/surfaces/CheckerboardSurface.js';
 
 import { RaytracingScene } from './raytracing/RaytracingScene.js';
 import { RaytracingSphere } from './raytracing/RaytracingSphere.js';
 
 // this works fine both locally and when deployed on github
-const fragmentShaderCodeFile = await fetch("./fragmentShader.glsl");
+const fragmentShaderCodeFile = await fetch("./raytracing/fragmentShader.glsl");
 const fragmentShaderCode = await fragmentShaderCodeFile.text();
 
-const vertexShaderCodeFile = await fetch("./vertexShader.glsl");
+const vertexShaderCodeFile = await fetch("./raytracing/vertexShader.glsl");
 const vertexShaderCode = await vertexShaderCodeFile.text();
 
-let appName = 'GUPGPU';
-let appLongName = 'GUPGPU (Glasgow University Physics Graphics Processing Unit)';
-let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates ideal optical components';
+let appName = 'GUPGPU resonaTHOR';
+let appLongName = 'GUPGPU (Glasgow University Physics Graphics Processing Unit) resonaTHOR';
+let appDescription = 'the premier web-based, GPU-powered, highly scientific, raytracer that simulates the view inside optical resonators';
 
 let scene;
 let renderer;
@@ -86,7 +87,7 @@ let info;
 // the menu
 let gui;
 let GUIParams;
-let autofocusControl, focusDistanceControl, baseYControl, backgroundControl, vrControlsVisibleControl;
+let autofocusControl, focusDistanceControl, baseYControl, backgroundControl, vrControlsVisibleControl, focussingTypeControl, showSelfConjugatePlanesControl;
 
 let GUIMesh;
 // let showGUIMesh;
@@ -101,8 +102,7 @@ let storedPhotoInfoString;
 // my Canon EOS450D
 const click = new Audio('./assets/click.m4a');
 
-
-
+let reflectionLossDB = -10;
 
 init();
 animate();
@@ -191,6 +191,89 @@ function render() {
 	// stats.end();
 }
 
+// function initRaytracingScene() {
+// 	raytracingScene = new RaytracingScene();
+
+// 	mirrorSurfaceIndex = raytracingScene.addMirrorSurface( MirrorSurface.perfectMirrorSurface );
+// 	// let colourSurfaceIndex = raytracingScene.addColourSurface( ColourSurface.red );
+
+// 	createMirrorRectangles();
+
+// 	raytracingScene.addSceneObject(new SceneObject(
+// 		true,	// visible
+// 		CONST.SPHERE_SHAPE,	// shapeType
+// 		raytracingScene.addSphereShape( SphereShape.getSphereShape(
+// 			new THREE.Vector3(0, 0, 0),
+// 			0.1
+// 		) ),	// shapeIndex
+// 		CONST.COLOUR_SURFACE,	// surfaceType
+// 		raytracingScene.addColourSurface( ColourSurface.red )	// surfaceIndex
+// 	));
+
+// 	noOfOtherSceneObjects = raytracingScene.noOfSceneObjects;
+
+// 	// add scene objects
+// 	for(let i=0; i<MAX_RESONATOR_NO_OF_MIRRORS; i++) {
+// 		raytracingScene.addSceneObject(new SceneObject(
+// 			true,	// visible
+// 			CONST.RECTANGLE_SHAPE,	// shapeType
+// 			i,	// shapeIndex
+// 			// CONST.COLOUR_SURFACE,
+// 			// colourSurfaceIndex
+// 			CONST.MIRROR_SURFACE,	// surfaceType
+// 			mirrorSurfaceIndex	// surfaceIndex
+// 		));
+// 	}
+// 	raytracingScene.noOfSceneObjects = noOfOtherSceneObjects + resonatorNoOfMirrors;
+
+// 	console.log( 
+// 		raytracingScene.noOfSceneObjects + " scene object(s),\n" +
+// 		raytracingScene.noOfRectangleShapes + " rectangle(s),\n" +
+// 		raytracingScene.noOfSphereShapes + " sphere(s),\n" +
+// 		raytracingScene.noOfCylinderMantleShapes + " cylinder(s),\n" +
+// 		raytracingScene.noOfColourSurfaces + " colour surface(s),\n" +
+// 		raytracingScene.noOfThinFocussingSurfaces + " thin-lens surface(s),\n" +
+// 		raytracingScene.noOfCheckerboardSurfaces + " checkerboard surface(s)"
+// 	);
+// }
+
+// function getR(phi) {
+// 	switch(resonatorSpiralType) {
+// 		case 0: return resonatorSpiralB*phi;	// Archimedean spiral
+// 		case 1: return Math.exp(resonatorSpiralB*phi);	// logarithmic spiral
+// 		case 2: return 1/(resonatorSpiralB*phi);	// hyperbolic spiral
+// 	}
+// 	return 1;
+// }
+
+// function createMirrorRectangles() {
+// 	let phi = resonatorSpiralPhi0;
+// 	let r = getR(phi);
+// 	let corner = new THREE.Vector3(
+// 		r*Math.cos(phi),
+// 		-0.5*resonatorHeight,
+// 		r*Math.sin(phi)
+// 	);
+	
+// 	for(let i=0; i<MAX_RESONATOR_NO_OF_MIRRORS; i++) {
+// 		phi += resonatorSpiralDPhi;
+// 		r = getR(phi);
+// 		let cornerNew = new THREE.Vector3(
+// 			r*Math.cos(phi),
+// 			-0.5*resonatorHeight,
+// 			r*Math.sin(phi)
+// 		);
+
+// 		raytracingScene.rectangleShapes[i] = RectangleShape.getRectangleShape(
+// 			corner,	// corner
+// 			cornerNew.clone().sub(corner),	// span1
+// 			new THREE.Vector3(0, resonatorHeight, 0)	// span2
+// 		);
+
+// 		corner = cornerNew;
+// 	}
+// }
+
 function initRaytracingScene() {
 	raytracingScene = new RaytracingScene();
 
@@ -223,16 +306,16 @@ function initRaytracingScene() {
 		zHat,	// span vector 2
 		xHat.clone().cross(zHat).normalize()	// normalised normal, pointing "outwards"
 	));
-	let sphereShape1Index = raytracingScene.addSphereShape( new SphereShape(
+	let sphereShape1Index = raytracingScene.addSphereShape( SphereShape.getSphereShape(
 		new THREE.Vector3(-1, 0, 0),	// centre
 		.5	// radius
 	));
 	let cylinderMantleIndex = raytracingScene.addCylinderMantleShape(
-		new CylinderMantleShape(
+		CylinderMantleShape.getCylinderMantleShape(
 			new THREE.Vector3(0, 1, 0),	// centre
 			0.2,	// radius
-			new THREE.Vector3(1, 0, 1).normalize(),	// direction
-			1	// length
+			1,	// length
+			new THREE.Vector3(1, 0, 1).normalize()	// axis
 		)
 	);
 
@@ -249,19 +332,22 @@ function initRaytracingScene() {
 	let redMirrorSurfaceIndex = raytracingScene.addMirrorSurface( new MirrorSurface(
 		new THREE.Vector4(1, .5, .5, 1)	// colourFactor
 	));
-	let redThinLensSurfaceIndex = raytracingScene.addThinLensSurface( new ThinLensSurface(
+	let redThinLensSurfaceIndex = raytracingScene.addThinFocussingSurface( new ThinFocussingSurface(
 		new THREE.Vector3(1, 0, 0),	// principalPoint
 		-2.,	// opticalPower
-		true,	// reflective
-		CONST.IDEAL_SURFACE_TYPE,	// type
-		new THREE.Vector4(1, .5, .5, 1)	// colourFactor
-	));
-	let greenThinCylLensSurfaceIndex = raytracingScene.addThinCylLensSurface( new ThinCylLensSurface(
-		new THREE.Vector3(0, -1, 0),	// principalPoint
-		-2.,	// opticalPower
+		CONST.SPHERICAL_FOCUSSING_TYPE,	// focussing type
 		new THREE.Vector3(1, 0, 0),	// optical-power direction
 		true,	// reflective
-		CONST.IDEAL_SURFACE_TYPE,	// type
+		CONST.IDEAL_REFRACTION_TYPE,	// type
+		new THREE.Vector4(1, .5, .5, 1)	// colourFactor
+	));
+	let greenThinCylLensSurfaceIndex = raytracingScene.addThinFocussingSurface( new ThinFocussingSurface(
+		new THREE.Vector3(0, -1, 0),	// principalPoint
+		-2.,	// opticalPower
+		CONST.CYLINDRICAL_FOCUSSING_TYPE,	// focussing type
+		new THREE.Vector3(1, 0, 0),	// optical-power direction
+		true,	// reflective
+		CONST.IDEAL_REFRACTION_TYPE,	// type
 		new THREE.Vector4(.5, 1, .5, 1)	// colourFactor
 	));
 	let perfectMirrorSurfaceIndex = raytracingScene.addMirrorSurface( MirrorSurface.perfectMirrorSurface );
@@ -286,14 +372,14 @@ function initRaytracingScene() {
 		true,	// visible
 		CONST.RECTANGLE_SHAPE,	// shapeType
 		rectangleShape3Index,	// shapeIndex
-		CONST.THIN_LENS_SURFACE,	// surfaceType
+		CONST.THIN_FOCUSSING_SURFACE,	// surfaceType
 		redThinLensSurfaceIndex	// surfaceIndex
 	));
 	raytracingScene.addSceneObject(new SceneObject( 
 		true,	// visible
 		CONST.RECTANGLE_SHAPE,	// shapeType
 		rectangleShape4Index,	// shapeIndex
-		CONST.THIN_CYL_LENS_SURFACE,	// CONST.MIRROR_SURFACE,	// surfaceType
+		CONST.THIN_FOCUSSING_SURFACE,	// CONST.MIRROR_SURFACE,	// surfaceType
 		greenThinCylLensSurfaceIndex	// perfectMirrorSurfaceIndex	// surfaceIndex
 	));	
 	raytracingScene.addSceneObject(new SceneObject( 
@@ -311,9 +397,15 @@ function initRaytracingScene() {
 		blueMirrorIndex	// surface index
 	));
 
-	console.log( "noOfSceneObjects: " + raytracingScene.noOfSceneObjects );
-	console.log( "noOfSpheres: "+raytracingScene.noOfSphereShapes );
-	console.log( "noOfThinLensSurfaces: "+raytracingScene.noOfThinLensSurfaces );
+	console.log( 
+		raytracingScene.noOfSceneObjects + " scene object(s),\n" +
+		raytracingScene.noOfRectangleShapes + " rectangle(s),\n" +
+		raytracingScene.noOfSphereShapes + " sphere(s),\n" +
+		raytracingScene.noOfCylinderMantleShapes + " cylinder(s),\n" +
+		raytracingScene.noOfColourSurfaces + " colour surface(s),\n" +
+		raytracingScene.noOfThinFocussingSurfaces + " thin focussing surface(s),\n" +
+		raytracingScene.noOfCheckerboardSurfaces + " checkerboard surface(s)"
+	);
 }
 
 function createUniforms() {
@@ -359,12 +451,16 @@ function createUniforms() {
 		cylinderMantleShapes: { value: raytracingScene.cylinderMantleShapes },
 		colourSurfaces: { value: raytracingScene.colourSurfaces },
 		mirrorSurfaces: { value: raytracingScene.mirrorSurfaces },
-		thinLensSurfaces: { value: raytracingScene.thinLensSurfaces },
-		thinCylLensSurfaces: { value: raytracingScene.thinCylLensSurfaces },
+		thinFocussingSurfaces: { value: raytracingScene.thinFocussingSurfaces },
+		checkerboardSurfaces: { value: raytracingScene.checkerboardSurfaces },
 	};	
 }
 
 function updateUniforms() {
+	// let reflectionCoefficient = 1-Math.pow(10, 0.1*reflectionLossDB);
+	// raytracingScene.mirrorSurfaces[mirrorSurfaceIndex].colourFactor = Util.coefficient2colourFactor(reflectionCoefficient);
+
+	raytracingSphere.uniforms.noOfSceneObjects.value = raytracingScene.noOfSceneObjects;
 
 	// // are we in VR mode?
 	let deltaY;
@@ -377,12 +473,11 @@ function updateUniforms() {
 	GUIMesh.position.y = deltaY - 1;
 
 	let t = 1e-3*Date.now();
-	raytracingSphere.uniforms.cylinderMantleShapes.value[0].nDirection = new THREE.Vector3( Math.cos(t), 0, Math.sin(t) );
-
+	raytracingSphere.uniforms.cylinderMantleShapes.value[0].nAxis = new THREE.Vector3( Math.cos(t), 0, Math.sin(t) );
 	raytracingSphere.uniforms.rectangleShapes.value[0].corner = new THREE.Vector3( -.5*Math.cos(3*t), -0.5, -1.-.5*Math.sin(3*t) );
 	raytracingSphere.uniforms.rectangleShapes.value[0].span1 = new THREE.Vector3( Math.cos(3*t), 0, Math.sin(3*t) );
 	raytracingSphere.uniforms.rectangleShapes.value[0].nNormal = new THREE.Vector3( -Math.sin(3*t), 0, Math.cos(3*t));
-	raytracingSphere.uniforms.thinCylLensSurfaces.value[0].nOpticalPowerDirection = new THREE.Vector3( Math.cos(2*t), 0, Math.sin(2*t) );
+	raytracingSphere.uniforms.thinFocussingSurfaces.value[1].nOpticalPowerDirection = new THREE.Vector3( Math.cos(2*t), 0, Math.sin(2*t) );
 	raytracingSphere.uniforms.backgroundTexture.value = backgroundTexture;
 
 	// create the points on the aperture
@@ -442,55 +537,56 @@ function updateUniforms() {
 	// raytracingSphere.uniforms.randomNumbersY.value = randomNumbersY;
 }
 
-/** create raytracing sphere */
-function addRaytracingSphere() {
+// /** create raytracing sphere */
+// function addRaytracingSphere() {
 
-	// create arrays of random numbers (as GLSL is rubbish at doing random numbers)
-	let randomNumbersX = [];
-	let randomNumbersY = [];
-	// make the first random number 0 in both arrays, meaning the 0th ray starts from the centre of the aperture
-	randomNumbersX.push(0);
-	randomNumbersY.push(0);
-	// fill in the rest of the array with random numbers
-	let i=1;
-	do {
-		// create a new pairs or random numbers (x, y) such that x^2 + y^2 <= 1
-		let x = 2*Math.random()-1;	// random number between -1 and 1
-		let y = 2*Math.random()-1;	// random number between -1 and 1
-		if(x*x + y*y <= 1) {
-			// (x,y) lies within a circle of radius 1
-			//  add a new point to the array of points on the aperture
-			randomNumbersX.push(x);
-			randomNumbersY.push(y);
-			i++;
-		}
-	} while (i < 100);
+// 	// create arrays of random numbers (as GLSL is rubbish at doing random numbers)
+// 	let randomNumbersX = [];
+// 	let randomNumbersY = [];
+// 	// make the first random number 0 in both arrays, meaning the 0th ray starts from the centre of the aperture
+// 	randomNumbersX.push(0);
+// 	randomNumbersY.push(0);
+// 	// fill in the rest of the array with random numbers
+// 	let i=1;
+// 	do {
+// 		// create a new pairs or random numbers (x, y) such that x^2 + y^2 <= 1
+// 		let x = 2*Math.random()-1;	// random number between -1 and 1
+// 		let y = 2*Math.random()-1;	// random number between -1 and 1
+// 		if(x*x + y*y <= 1) {
+// 			// (x,y) lies within a circle of radius 1
+// 			//  add a new point to the array of points on the aperture
+// 			randomNumbersX.push(x);
+// 			randomNumbersY.push(y);
+// 			i++;
+// 		}
+// 	} while (i < 100);
 
-	raytracingSphere = new RaytracingSphere(
-		raytracingSphereRadius, 
-		{
-			maxTraceLevel: { value: 10 },
-			backgroundTexture: { value: backgroundTexture },
-			focusDistance: { value: 10.0 },
-			apertureXHat: { value: new THREE.Vector3(1, 0, 0) },
-			apertureYHat: { value: new THREE.Vector3(0, 1, 0) },
-			apertureRadius: { value: apertureRadius },
-			randomNumbersX: { value: randomNumbersX },
-			randomNumbersY: { value: randomNumbersY },
-			noOfRays: { value: 1 },
-			viewDirection: { value: new THREE.Vector3(0, 0, -1) },
-			keepVideoFeedForward: { value: true },
-			sceneObjects: { value: raytracingScene.sceneObjects },
-			noOfSceneObjects: { value: raytracingScene.noOfSceneObjects },
-			rectangles: { value: raytracingScene.rectangles },
-			colours: { value: raytracingScene.colours },
-			mirrors: { value: raytracingScene.mirrors },
-		},
-		vertexShaderCode,
-		fragmentShaderCode
-	);
-	scene.add( raytracingSphere );
-}
+// 	raytracingSphere = new RaytracingSphere(
+// 		raytracingSphereRadius, 
+// 		{
+// 			maxTraceLevel: { value: 10 },
+// 			backgroundTexture: { value: backgroundTexture },
+// 			focusDistance: { value: 10.0 },
+// 			apertureXHat: { value: new THREE.Vector3(1, 0, 0) },
+// 			apertureYHat: { value: new THREE.Vector3(0, 1, 0) },
+// 			apertureRadius: { value: apertureRadius },
+// 			randomNumbersX: { value: randomNumbersX },
+// 			randomNumbersY: { value: randomNumbersY },
+// 			noOfRays: { value: 1 },
+// 			viewDirection: { value: new THREE.Vector3(0, 0, -1) },
+// 			keepVideoFeedForward: { value: true },
+// 			sceneObjects: { value: raytracingScene.sceneObjects },
+// 			noOfSceneObjects: { value: raytracingScene.noOfSceneObjects },
+// 			rectangles: { value: raytracingScene.rectangles },
+// 			colours: { value: raytracingScene.colours },
+// 			mirrors: { value: raytracingScene.mirrors },
+// 		},
+// 		vertexShaderCode,
+// 		fragmentShaderCode
+// 	);
+// 	scene.add( raytracingSphere );
+// }
+
 
 
 // see https://github.com/mrdoob/three.js/blob/master/examples/webgl_animation_skinning_additive_blending.html
@@ -525,13 +621,16 @@ function createGUI() {
 		},
 		baseY: baseY,
 		makeEyeLevel: function() { baseY = camera.position.y; baseYControl.setValue(baseY); },
+		reflectionLossDB: reflectionLossDB,	// 10*Math.log10(1-raytracingSphereShaderMaterial.uniforms.reflectionCoefficient.value),
 	}
 
-	gui.add( GUIParams, 'maxTraceLevel', 0, 20, 1 ).name( 'Max. trace level' ).onChange( (r) => {raytracingSphere.uniforms.maxTraceLevel.value = r; } );
+	gui.add( GUIParams, 'maxTraceLevel', 0, 200, 1 ).name( 'Max. trace level' ).onChange( (r) => {raytracingSphere.uniforms.maxTraceLevel.value = r; } );
 
 	baseYControl = gui.add( GUIParams, 'baseY',  0, 3, 0.001).name( "<i>y</i><sub>base</sub>" ).onChange( (y) => { baseY = y; } );
 	gui.add( GUIParams, 'makeEyeLevel' ).name( 'Eye level -> <i>y</i><sub>base</sub>' );
 
+	gui.add( GUIParams, 'reflectionLossDB', -30, 0, 0.1 ).name( 'Refl. loss (dB)' ).onChange( (l) => { reflectionLossDB = l; } );
+	
 	// const folderVirtualCamera = gui.addFolder( 'Virtual camera' );
 	gui.add( GUIParams, 'Horiz. FOV (&deg;)', 1, 170, 1).onChange( setScreenFOV );
 	gui.add( GUIParams, 'Aperture radius', 0.0, 1.0, 0.01).onChange( (r) => { apertureRadius = r; } );
@@ -596,6 +695,19 @@ function getBackgroundInfo() {
 		}
 	
 }
+
+function focussingType2String() {
+	switch(focussingType) {
+		case CONST.SPHERICAL_FOCUSSING_TYPE: return 'Spherical, thin, mirrors';
+		case CONST.CYLINDRICAL_FOCUSSING_TYPE: return 'Cylindrical, thin, mirrors';
+		default: return 'Undefined';
+	}
+}
+
+function showSelfConjugatePlanes2String() {
+	return 'Self-conjugate planes '+(showSelfConjugatePlanes?'shown':'hidden');
+}
+
 
 function guiMeshVisible2String() {
 	return 'VR controls '+(GUIMesh.visible?'visible':'hidden');
