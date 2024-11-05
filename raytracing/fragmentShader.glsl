@@ -904,7 +904,7 @@ void main() {
 		bool continueRaytracing = true;
 		while(
 			continueRaytracing &&
-			(tl-- > 0) &&
+			(tl-- >= 0) &&
 			findIntersectionWithScene(
 				s, // ray start point, origin 
 				nD, // ray direction 
@@ -927,7 +927,7 @@ void main() {
 			// TODO pass origin simple shape info to findIntersectionWithScene?
 		}
 
-		if( tl > 0 ) {
+		if( tl >= 0 ) {
 			if( continueRaytracing ) c *= getColorOfBackground(nD);
 		} else {
 			c = vec4(0., 0., 0., 1.);
