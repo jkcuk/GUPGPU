@@ -3,25 +3,33 @@ precision highp float;
 #define PI 3.1415926538
 
 // these constants must take the same values as those defined in Constants.js
-#define MAX_SCENE_OBJECTS 50
-#define MAX_RECTANGLE_SHAPES 50
-#define MAX_SPHERE_SHAPES 10
+#define MAX_SCENE_OBJECTS 10
+
+#define MAX_CYLINDER_MANTLE_SHAPES 4
+#define MAX_RECTANGLE_SHAPES 10
+#define MAX_SPHERE_SHAPES 4
+#define MAX_SOLID_GEOMETRY_SHAPES 2
+
 #define MAX_CHECKERBOARD_SURFACES 2
 #define MAX_COLOUR_SURFACES 10
-#define MAX_CYLINDER_MANTLE_SHAPES 10
 #define MAX_MIRROR_SURFACES 10
+#define MAX_REFRACTING_SURFACES 10
 #define MAX_THIN_FOCUSSING_SURFACES 10
 
+#define MAX_INTERSECTING_SHAPES 4
+
 // shapes
+#define CYLINDER_MANTLE_SHAPE 2
 #define RECTANGLE_SHAPE 0
 #define SPHERE_SHAPE 1
-#define CYLINDER_MANTLE_SHAPE 2
+#define SOLID_GEOMETRY_SHAPE 10
 
 // surfaces
 #define COLOUR_SURFACE 0
 #define MIRROR_SURFACE 1
 #define THIN_FOCUSSING_SURFACE 2
 #define CHECKERBOARD_SURFACE 3
+#define REFRACTING_SURFACE 4	// TODO add functions!
 
 // focussing types
 #define SPHERICAL_FOCUSSING_TYPE 0
@@ -33,18 +41,39 @@ precision highp float;
 #define PHASE_HOLOGRAM_REFRACTION_TYPE 1
 
 
+const float TOO_FAR = 1e20;
+const float TOO_CLOSE = .5e-4;
+
+
+
 varying vec3 intersectionPoint;
+
+struct ShapeID {
+	int type;
+	int index;
+};
+
+struct SurfaceID {
+	int type;
+	int index;
+};
+
+//
+// scene objects
+//
 
 struct SceneObject {
 	bool visible;
-	int shapeType;
-	int shapeIndex;
-	int surfaceType;
-	int surfaceIndex; 
+	ShapeID shapeID;
+	SurfaceID surfaceID; 
 };
-
 uniform SceneObject sceneObjects[MAX_SCENE_OBJECTS];
 uniform int noOfSceneObjects;
+
+
+//
+// shapes
+//
 
 struct RectangleShape {
 	vec3 corner;
@@ -75,6 +104,19 @@ struct CylinderMantleShape {
 };
 uniform CylinderMantleShape cylinderMantleShapes[MAX_CYLINDER_MANTLE_SHAPES];
 
+struct SolidGeometryShape {
+	ShapeID shapeIDs[MAX_INTERSECTING_SHAPES];
+	bool visible[MAX_INTERSECTING_SHAPES];
+	bool insideOut[MAX_INTERSECTING_SHAPES];
+	bool clipping[MAX_INTERSECTING_SHAPES];
+	int noOfShapes;
+};
+uniform SolidGeometryShape solidGeometryShapes[MAX_SOLID_GEOMETRY_SHAPES];
+
+//
+// surfaces
+//
+
 struct CheckerboardSurface {
 	float width1;	// width (in surface coordinate 1 of the shape) of checkers in direction 1
 	float width2;	// width (in surface coordinate 2 of the shape) of checkers in direction 2
@@ -95,6 +137,12 @@ struct MirrorSurface {
 	vec4 colourFactor;
 };
 uniform MirrorSurface mirrorSurfaces[MAX_MIRROR_SURFACES];
+
+struct RefractingSurface {
+	float inOutRefractiveIndexRatio;
+	vec4 colourFactor;
+};
+uniform RefractingSurface refractingSurfaces[MAX_REFRACTING_SURFACES];
 
 struct ThinFocussingSurface {
 	vec3 principalPoint;
@@ -130,17 +178,17 @@ uniform float randomNumbersY[100];
 bool findIntersectionWithRectangleShape(
 	vec3 s, // ray start point, origin 
 	vec3 nD, // normalised ray direction 
-	RectangleShape rectangleShape,
+	int rectangleIndex,
 	out vec3 intersectionPosition,
 	out float intersectionDistance
 ) {
 	// if the ray is parallel to the rectangle; there is no intersection 
-	if (dot(nD, rectangleShape.nNormal) == 0.) {
+	if (dot(nD, rectangleShapes[rectangleIndex].nNormal) == 0.) {
 		return false;
 	}
 	
 	// calculate delta to check for intersections 
-	float delta = dot(rectangleShape.corner - s, rectangleShape.nNormal) / dot(nD, rectangleShape.nNormal);
+	float delta = dot(rectangleShapes[rectangleIndex].corner - s, rectangleShapes[rectangleIndex].nNormal) / dot(nD, rectangleShapes[rectangleIndex].nNormal);
 	if (delta<0.) {
 		// intersection with rectangle is in backward direction
 		return false;
@@ -151,12 +199,12 @@ bool findIntersectionWithRectangleShape(
 
 	// does the intersection position lie within the rectangle 
 	// (or elsewhere on the plane of the rectangle)?
-	vec3 v = intersectionPosition - rectangleShape.corner;
+	vec3 v = intersectionPosition - rectangleShapes[rectangleIndex].corner;
 
-	float x1 = dot(v, rectangleShape.span1);
-	if( (x1 < 0.) || (x1 > dot(rectangleShape.span1, rectangleShape.span1)) ) { return false; }
-	float x2 = dot(v, rectangleShape.span2);
-	if(x2 < 0. || x2 > dot(rectangleShape.span2, rectangleShape.span2)) { return false; }
+	float x1 = dot(v, rectangleShapes[rectangleIndex].span1);
+	if( (x1 < 0.) || (x1 > dot(rectangleShapes[rectangleIndex].span1, rectangleShapes[rectangleIndex].span1)) ) { return false; }
+	float x2 = dot(v, rectangleShapes[rectangleIndex].span2);
+	if(x2 < 0. || x2 > dot(rectangleShapes[rectangleIndex].span2, rectangleShapes[rectangleIndex].span2)) { return false; }
 
 	// the intersection position lies within the rectangle
 	intersectionDistance = delta;	// if nD is not normalised: delta*length(nD);
@@ -201,15 +249,15 @@ bool calculateDelta(
 bool findIntersectionWithSphereShape(
 	vec3 s, 	// ray start point
 	vec3 nD, 	// ray direction
-	SphereShape sphereShape,
+	int sphereIndex,
 	out vec3 intersectionPosition,
 	out float intersectionDistance
 ) {
 	// for maths see geometry.pdf
-	vec3 v = s - sphereShape.centre;
+	vec3 v = s - sphereShapes[sphereIndex].centre;
 	// float a = dot(nD, nD);
 	float b = 2.*dot(nD, v);
-	float c = dot(v, v) - sphereShape.radius2;
+	float c = dot(v, v) - sphereShapes[sphereIndex].radius2;
 
 	float delta;
 	if(calculateDelta(
@@ -227,36 +275,36 @@ bool findIntersectionWithSphereShape(
 
 bool isWithinFiniteBitOfCylinderMantleShape(
 	vec3 position,
-	CylinderMantleShape cylinderMantleShape
+	int cylinderMantleIndex
 ) {
-	float a = dot( position - cylinderMantleShape.centre, cylinderMantleShape.nAxis );
-	return ( abs(a) <= 0.5*cylinderMantleShape.length );
+	float a = dot( position - cylinderMantleShapes[cylinderMantleIndex].centre, cylinderMantleShapes[cylinderMantleIndex].nAxis );
+	return ( abs(a) <= 0.5*cylinderMantleShapes[cylinderMantleIndex].length );
 }
 
 bool findIntersectionWithCylinderMantleShape(
 	vec3 s, 	// ray start point
 	vec3 nD, 	// normalised ray direction
-	CylinderMantleShape cylinderMantleShape,
+	int cylinderMantleIndex,
 	out vec3 intersectionPosition,
 	out float intersectionDistance
 ) {
 	// first a quick check if the ray intersects the (infinitely long) cylinder mantle
 	// see https://en.wikipedia.org/wiki/Skew_lines#Distance
 
-	vec3 n = normalize(cross(cylinderMantleShape.nAxis, nD));	// a normalised vector perpendicular to both line and cylinder direction
-	float distance = dot(s-cylinderMantleShape.centre, n);
+	vec3 n = normalize(cross(cylinderMantleShapes[cylinderMantleIndex].nAxis, nD));	// a normalised vector perpendicular to both line and cylinder direction
+	float distance = dot(s-cylinderMantleShapes[cylinderMantleIndex].centre, n);
 
-	if(distance > cylinderMantleShape.radius) return false;
+	if(distance > cylinderMantleShapes[cylinderMantleIndex].radius) return false;
 
 	// there is an intersection with the *infinite* cylinder mantle; calculate delta such that intersection position = s + delta * d
 
 	// for maths see J's lab book 19/10/24
-	vec3 v = cross( cylinderMantleShape.nAxis, s-cylinderMantleShape.centre );
-	vec3 w = cross( cylinderMantleShape.nAxis, nD );
+	vec3 v = cross( cylinderMantleShapes[cylinderMantleIndex].nAxis, s-cylinderMantleShapes[cylinderMantleIndex].centre );
+	vec3 w = cross( cylinderMantleShapes[cylinderMantleIndex].nAxis, nD );
 	// coefficients of quadratic equation a delta^2 + b delta + c = 0
 	float a = dot(w, w);
 	float b = 2.*dot(v, w);
-	float c = dot(v, v) - cylinderMantleShape.radius2;
+	float c = dot(v, v) - cylinderMantleShapes[cylinderMantleIndex].radius2;
 	float bOverA = b/a;
 	float cOverA = c/a;
 
@@ -276,12 +324,12 @@ bool findIntersectionWithCylinderMantleShape(
 	// try the "-" solution first, as this will be closer, provided it is positive (i.e. in the forward direction)
 	float delta = (-bOverA - sqrtDiscriminant)/2.;
 	intersectionPosition = s + delta*nD;
-	if( (delta < 0.) || !isWithinFiniteBitOfCylinderMantleShape( intersectionPosition, cylinderMantleShape ) ) {
+	if( (delta < 0.) || !isWithinFiniteBitOfCylinderMantleShape( intersectionPosition, cylinderMantleIndex ) ) {
 		// the "-" solution lies in the "backwards" direction or doesn't lie on the finite bit of the cylinder mantle; try the "+" solution
 		delta = (-bOverA + sqrtDiscriminant)/2.;
 
 		intersectionPosition = s + delta*nD;
-		if( (delta < 0.) || !isWithinFiniteBitOfCylinderMantleShape( intersectionPosition, cylinderMantleShape ) )
+		if( (delta < 0.) || !isWithinFiniteBitOfCylinderMantleShape( intersectionPosition, cylinderMantleIndex ) )
 			// the "-" solution lies in the "backwards" direction or doesn't lie on the finite bit of the cylinder mantle
 			return false;
 	}
@@ -290,42 +338,181 @@ bool findIntersectionWithCylinderMantleShape(
 	return true;
 }
 
-bool findIntersectionWithSceneObject(
+/* A simple shape is any shape other than a SolidGeometryShape */
+bool findIntersectionWithSimpleShape(
 	in vec3 s, // ray start point, origin 
 	in vec3 nD, // normalized ray direction 
-	in int sceneObjectIndex,
+	in ShapeID originShapeID,
+	in ShapeID shapeID,
 	out vec3 intersectionPosition,
 	out float intersectionDistance
 ) {
-	if(sceneObjects[sceneObjectIndex].shapeType == RECTANGLE_SHAPE) {
+	if(shapeID.type == RECTANGLE_SHAPE) {
+		// check if the ray originated on the same rectangle
+		if( originShapeID == shapeID ) {
+			// it did, but only a single intersection is possible, so no intersection
+			return false;
+		}
+
 		return findIntersectionWithRectangleShape(
 			s, // ray start point, origin 
 			nD, // normalised ray direction 
-			rectangleShapes[sceneObjects[sceneObjectIndex].shapeIndex],	// rectangle shape
+			shapeID.index,	// rectangle shape index
 			intersectionPosition,
 			intersectionDistance
 		);
-	} else if(sceneObjects[sceneObjectIndex].shapeType == SPHERE_SHAPE ) {
+	} else if(shapeID.type == SPHERE_SHAPE ) {
+		// check if the ray originated on the same sphere
+		if( originShapeID == shapeID ) {
+			// it did; avoid finding the same intersection again by advancing the ray a tiny bit before checking
+			s += TOO_CLOSE*nD;
+		}
+
 		return findIntersectionWithSphereShape(
 			s, // ray start point, origin 
 			nD, // normalised ray direction 
-			sphereShapes[sceneObjects[sceneObjectIndex].shapeIndex],
+			shapeID.index,
 			intersectionPosition,
 			intersectionDistance
 		);
-	} else if(sceneObjects[sceneObjectIndex].shapeType == CYLINDER_MANTLE_SHAPE ) {
+	} else if(shapeID.type == CYLINDER_MANTLE_SHAPE ) {
+		// check if the ray originated on the same cylinder
+		if( originShapeID == shapeID ) {
+			// it did; avoid finding the same intersection again by advancing the ray a tiny bit before checking
+			s += TOO_CLOSE*nD;
+		}
+
 		return findIntersectionWithCylinderMantleShape(
 			s, // ray start point, origin 
 			nD, // normalised ray direction 
-			cylinderMantleShapes[sceneObjects[sceneObjectIndex].shapeIndex],
+			shapeID.index,
+			intersectionPosition,
+			intersectionDistance
+		);
+	} 
+	return false;
+}
+
+bool isInsideShape(
+	vec3 position,
+	ShapeID shapeID
+);
+
+bool isInsideAllClippingShapes(
+	vec3 position, 
+	int solidGeometryIndex, 
+	ShapeID intersectedShapeID
+) {
+	// go through all the clipping shapes (apart from the intersected one) and check
+	// if the intersection position is inside them
+	for(int i = 0; i < solidGeometryShapes[solidGeometryIndex].noOfShapes; i++) {
+		if( 
+			(solidGeometryShapes[solidGeometryIndex].shapeIDs[i] != intersectedShapeID) && 
+			solidGeometryShapes[solidGeometryIndex].clipping[i] 
+		) {
+			// the shape is not the intersected one and it is clipping
+			if(
+				!(
+					solidGeometryShapes[solidGeometryIndex].insideOut[i] ^^
+					isInsideShape(
+						position,
+						solidGeometryShapes[solidGeometryIndex].shapeIDs[i]
+					)
+				)
+			) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool findIntersectionWithSolidGeometryShape(
+	vec3 s, 	// ray start point
+	vec3 nD, 	// normalised ray direction
+	in ShapeID originShapeID,
+	int solidGeometryIndex,
+	out ShapeID intersectedSimpleShapeID,	// to identify the specific shape within the solid-geometry shape
+	out vec3 intersectionPosition,
+	out float intersectionDistance
+) {
+	intersectionDistance = TOO_FAR;
+
+	vec3 currentIntersectionPosition;
+	float currentIntersectionDistance;
+	bool tryAgain;
+
+	// go through all the visible shapes
+	for(int i = 0; i < solidGeometryShapes[solidGeometryIndex].noOfShapes; i++) {
+		// is the current shape visible?
+		if( solidGeometryShapes[solidGeometryIndex].visible[i] ) {
+			// yes, it's visible; check if there is an intersection
+			vec3 sCurrent = s;
+			do {
+				tryAgain = false;
+				if( findIntersectionWithSimpleShape(
+					sCurrent,
+					nD,
+					originShapeID,
+					solidGeometryShapes[solidGeometryIndex].shapeIDs[i],
+					currentIntersectionPosition,
+					currentIntersectionDistance
+				) ) {
+					currentIntersectionDistance += distance(s, sCurrent);
+					if( currentIntersectionDistance < intersectionDistance ) {
+						if( isInsideAllClippingShapes(
+							currentIntersectionPosition, 
+							solidGeometryIndex, 
+							solidGeometryShapes[solidGeometryIndex].shapeIDs[i]
+						) ) {
+							intersectedSimpleShapeID = solidGeometryShapes[solidGeometryIndex].shapeIDs[i];
+							intersectionPosition = currentIntersectionPosition;
+							intersectionDistance = currentIntersectionDistance;
+						} else {
+							// we need to check for further intersections with the same shape;
+							// advance the ray a little bit so that we don't get stuck in the loop
+							sCurrent = currentIntersectionPosition + TOO_CLOSE*nD;
+							tryAgain = true;
+						}
+					}
+				}
+			} while( tryAgain );
+		}
+	}
+	return ( intersectionDistance < TOO_FAR );
+}
+
+bool findIntersectionWithShape(
+	in vec3 s, // ray start point, origin 
+	in vec3 nD, // normalized ray direction 
+	in ShapeID originShapeID,
+	in ShapeID shapeID,
+	out ShapeID intersectedSimpleShapeID,
+	out vec3 intersectionPosition,
+	out float intersectionDistance
+) {
+	if( shapeID.type == SOLID_GEOMETRY_SHAPE ) {
+		return findIntersectionWithSolidGeometryShape(
+			s, // ray start point, origin 
+			nD, // normalised ray direction 
+			originShapeID,
+			shapeID.index,
+			intersectedSimpleShapeID,	// to identify the specific shape within the solid-geometry shape
+			intersectionPosition,
+			intersectionDistance
+		);
+	} else {
+		intersectedSimpleShapeID = shapeID;
+		return findIntersectionWithSimpleShape(
+			s,
+			nD,
+			originShapeID,
+			shapeID,
 			intersectionPosition,
 			intersectionDistance
 		);
 	}
-	return false;
 }
-
-const float TOO_FAR = 1e20;
 
 // find the (closest) intersection in the ray's forward direction with any of the
 // objects that make up the scene
@@ -339,48 +526,45 @@ const float TOO_FAR = 1e20;
 bool findIntersectionWithScene(
 	in vec3 s, // ray start point, origin 
 	in vec3 nD, // normalized ray direction 
-	in int originSceneObjectIndex,
+	in ShapeID originShapeID,
 	out int closestIntersectedSceneObjectIndex,
+	out ShapeID closestIntersectedSimpleShapeID,	// in case the scene object is of type SOLID_GEOMETRY_TYPE
 	out vec3 closestIntersectionPosition,
 	out float closestIntersectionDistance
 ) {
 	closestIntersectionDistance = TOO_FAR;	// this means there is no intersection, so far
 
 	// create space for info on the current intersection
+	ShapeID intersectedSimpleShapeID;
 	vec3 intersectionPosition;
 	float intersectionDistance;
 
 	// go through all the scene objects
 	for(int sceneObjectIndex = 0; sceneObjectIndex < noOfSceneObjects; sceneObjectIndex++) {
-		// check if the ray did not originate on sceneObject
-		if( originSceneObjectIndex != sceneObjectIndex ) {
-			// the ray did not originate on sceneObject
+		// check for intersections only if the scene object is visible
+		if(sceneObjects[sceneObjectIndex].visible) {
+			// the scene object is visible
+			if( 
+				findIntersectionWithShape(
+					s, // ray start point, origin 
+					nD, // ray direction 
+					originShapeID,	// originShapeID
+					sceneObjects[sceneObjectIndex].shapeID,	// shapeID
+					intersectedSimpleShapeID,
+					intersectionPosition,
+					intersectionDistance
+				)
+			) {
+				// the ray intersects the shape
 
-			// SceneObject sceneObject = sceneObjects[sceneObjectIndex];
-
-			// check for intersections only if the scene object is visible
-			if(sceneObjects[sceneObjectIndex].visible) {
-				// the scene object is visible
-
-				if( 
-					findIntersectionWithSceneObject(
-						s, // ray start point, origin 
-						nD, // ray direction 
-						sceneObjectIndex,
-						intersectionPosition,
-						intersectionDistance
-					)
-				) {
-					// the ray intersects the shape
-
-					// is this the new closest intersection?
-					if( intersectionDistance < closestIntersectionDistance ) {
-						// this is the new closest intersection
-						// take note of the parameters that describe it
-						closestIntersectedSceneObjectIndex = sceneObjectIndex;
-						closestIntersectionDistance = intersectionDistance;
-						closestIntersectionPosition = intersectionPosition;
-					}
+				// is this the new closest intersection?
+				if( intersectionDistance < closestIntersectionDistance ) {
+					// this is the new closest intersection
+					// take note of the parameters that describe it
+					closestIntersectedSceneObjectIndex = sceneObjectIndex;
+					closestIntersectedSimpleShapeID = intersectedSimpleShapeID;
+					closestIntersectionDistance = intersectionDistance;
+					closestIntersectionPosition = intersectionPosition;
 				}
 			}
 		}
@@ -408,7 +592,7 @@ bool isInsideSphereShape(
 	int sphereShapeIndex
 ) {
 	vec3 r = position - sphereShapes[sphereShapeIndex].centre;
-	return ( dot(r, r) <= sphereShapes[sphereShapeIndex].radius*sphereShapes[sphereShapeIndex].radius);
+	return ( dot(r, r) <= sphereShapes[sphereShapeIndex].radius2);
 }
 
 // the inside of a cylinder mantle (no end caps) is interpreted here as 
@@ -428,28 +612,58 @@ bool isInsideCylinderMantleShape(
 		) / ( 0.5*cylinderMantleShapes[cylinderMantleShapeIndex].length );
 		return ( (-1.0 <= a) && (a <= 1.0) );
 	}
+	return false;
+}
+
+/* this should never be called as isInside<...>Shape functions are intended for use in
+solid-geometry functions, and an isInsideSolidGeometryShape function call would result
+from adding a shape of type SOLID_GEOMETRY_SHAPE to a SolidGeometryShape, which is not
+allowed as it would result in a recursive function call.
+See https://www.khronos.org/opengl/wiki/Core_Language_(GLSL)#Recursion
+*/ 
+bool isInsideSolidGeometryShape(
+	vec3 position,
+	int solidGeometryIndex
+) {
+	// not intended to ever be called
+	return false;
+}
+
+bool isInsideShape(
+	vec3 position,
+	ShapeID shapeID
+) {
+	if(shapeID.type == RECTANGLE_SHAPE) {
+		return isInsideRectangleShape(
+			position,
+			shapeID.index
+		);
+	} else if(shapeID.type == SPHERE_SHAPE ) {
+		return isInsideSphereShape(
+			position,
+			shapeID.index
+		);
+	} else if(shapeID.type == CYLINDER_MANTLE_SHAPE ) {
+		return isInsideCylinderMantleShape(
+			position,
+			shapeID.index
+		);
+	} else if(shapeID.type == SOLID_GEOMETRY_SHAPE) {
+		return isInsideSolidGeometryShape(
+			position,
+			shapeID.index
+		);
+	}
 }
 
 bool isInsideSceneObject(
 	vec3 position,
 	int sceneObjectIndex
 ) {
-	if(sceneObjects[sceneObjectIndex].shapeType == RECTANGLE_SHAPE) {
-		return isInsideRectangleShape(
-			position,
-			sceneObjects[sceneObjectIndex].shapeIndex
-		);
-	} else if(sceneObjects[sceneObjectIndex].shapeType == SPHERE_SHAPE ) {
-		return isInsideSphereShape(
-			position,
-			sceneObjects[sceneObjectIndex].shapeIndex
-		);
-	} else if(sceneObjects[sceneObjectIndex].shapeType == CYLINDER_MANTLE_SHAPE ) {
-		return isInsideCylinderMantleShape(
-			position,
-			sceneObjects[sceneObjectIndex].shapeIndex
-		);
-	}
+	return isInsideShape(
+		position,
+		sceneObjects[sceneObjectIndex].shapeID
+	);
 }
 
 //
@@ -479,15 +693,13 @@ vec3 getNormal2CylinderMantleShape(
 }
 
 // returns the normalised normal at the position
-vec3 getNormal2SceneObject(
+vec3 getNormal2Shape(
 	vec3 position,
-	int sceneObjectIndex
+	ShapeID shapeID
 ) {
-	int shapeType = sceneObjects[sceneObjectIndex].shapeType;
-	int shapeIndex = sceneObjects[sceneObjectIndex].shapeIndex;
-	if( shapeType == RECTANGLE_SHAPE ) return getNormal2RectangleShape(position, shapeIndex);
-	else if( shapeType == SPHERE_SHAPE ) return getNormal2SphereShape(position, shapeIndex);
-	else if( shapeType == CYLINDER_MANTLE_SHAPE ) return getNormal2CylinderMantleShape(position, shapeIndex);
+	if( shapeID.type == RECTANGLE_SHAPE ) return getNormal2RectangleShape(position, shapeID.index);
+	else if( shapeID.type == SPHERE_SHAPE ) return getNormal2SphereShape(position, shapeID.index);
+	else if( shapeID.type == CYLINDER_MANTLE_SHAPE ) return getNormal2CylinderMantleShape(position, shapeID.index);
 	return vec3(0, 1, 0);
 }
 
@@ -532,58 +744,19 @@ vec2 getSurfaceCoordinatesOnCylinderMantleShape(
 }
 
 // returns the surface coordinates at the position
-vec2 getSurfaceCoordinatesOnSceneObject(
+vec2 getSurfaceCoordinatesOnShape(
 	vec3 position,
-	int sceneObjectIndex
+	ShapeID shapeID
 ) {
-	int shapeType = sceneObjects[sceneObjectIndex].shapeType;
-	int shapeIndex = sceneObjects[sceneObjectIndex].shapeIndex;
-	if( shapeType == RECTANGLE_SHAPE ) return getSurfaceCoordinatesOnRectangleShape(position, shapeIndex);
-	else if( shapeType == SPHERE_SHAPE ) return getSurfaceCoordinatesOnSphereShape(position, shapeIndex);
-	else if( shapeType == CYLINDER_MANTLE_SHAPE ) return getSurfaceCoordinatesOnCylinderMantleShape(position, shapeIndex);
+	if( shapeID.type == RECTANGLE_SHAPE ) return getSurfaceCoordinatesOnRectangleShape(position, shapeID.index);
+	else if( shapeID.type == SPHERE_SHAPE ) return getSurfaceCoordinatesOnSphereShape(position, shapeID.index);
+	else if( shapeID.type == CYLINDER_MANTLE_SHAPE ) return getSurfaceCoordinatesOnCylinderMantleShape(position, shapeID.index);
 	return vec2(0, 0);
 }
 
 //
 // interactWith<...> functions
 //
-
-void interactWithThinLensOrMirrorSurface(
- 	vec3 pi,	// I-P, i.e. the vector from the principal point P to the intersection point I
-	inout vec3 nD,	// normalised ray direction 
-	inout vec4 c,	// colour/brightness
-	vec3 nN,	// normalised (outwards-facing) normal
-	int type,
-	float opticalPower,
-	float reflectionFactor
-) {
-	if(type == IDEAL_REFRACTION_TYPE) {
-		// ideal thin lens/mirror
-
-		// "normalise" the direction such that the magnitude of the "nD component" is 1
-		vec3 d1 = nD/abs(dot(nD, nN));
-
-		// calculate the "nN component" of d1, which is of magnitude 1 but the sign can be either + or -
-		float d1N = dot(d1, nN);
-
-		vec3 d1T = d1 - nN*d1N;	// the transverse (perpendicular to nN) part of d1
-
-		// the 3D deflected direction comprises the transverse components and a n component of magnitude 1
-		// and the same sign as d1N = dot(d, nHat)
-		nD = normalize(d1T - pi*opticalPower + nN*reflectionFactor*d1N);	// replace d1N with sign(d1N) if d1 is differently normalised
-	} else if(type == PHASE_HOLOGRAM_REFRACTION_TYPE) {
-		// phase hologram
-		// nD is already normalised as required
-		float nDN = dot(nD, nN);	// the nN component of nD
-		
-		// the transverse (perpendicular to nN) part of the outgoing light-ray direction
-		vec3 dT = nD - nN*nDN - pi*opticalPower;
-
-		// from the transverse direction, construct a 3D vector by setting the n component such that the length
-		// of the vector is 1
-		nD = normalize(dT + nN*reflectionFactor*sign(nDN)*sqrt(1.0 - dot(dT, dT)));
-	}
-}
 
 bool interactWithThinFocussingSurface(
  	inout vec3 s,	// intersection position; out value becomes new ray start point
@@ -639,37 +812,39 @@ bool interactWithSurface(
 	inout vec3 s,	// intersection position; out value becomes new ray start point
 	inout vec3 nD,	// normalised ray direction 
 	inout vec4 c,	// colour/brightness
-	int sceneObjectIndex
+	SurfaceID surfaceID,
+	ShapeID shapeID
+	// int sceneObjectIndex
 ) {
-	if( sceneObjects[sceneObjectIndex].surfaceType == COLOUR_SURFACE ) {
-		c *= colourSurfaces[ sceneObjects[sceneObjectIndex].surfaceIndex ].colourFactor;	// multiply colour by the colour multiplier
-		return colourSurfaces[ sceneObjects[sceneObjectIndex].surfaceIndex ].semitransparent;	// keep raytracing if semitransparent, otherwise not
+	if( surfaceID.type == COLOUR_SURFACE ) {
+		c *= colourSurfaces[ surfaceID.index ].colourFactor;	// multiply colour by the colour multiplier
+		return colourSurfaces[ surfaceID.index ].semitransparent;	// keep raytracing if semitransparent, otherwise not
 	} 
-	else if( sceneObjects[sceneObjectIndex].surfaceType == MIRROR_SURFACE ) {
-		c *= mirrorSurfaces[ sceneObjects[sceneObjectIndex].surfaceIndex ].colourFactor;	// multiply colour by the colour multiplier
-		vec3 n = normalize(getNormal2SceneObject( s, sceneObjectIndex ));
+	else if( surfaceID.type == MIRROR_SURFACE ) {
+		c *= mirrorSurfaces[ surfaceID.index ].colourFactor;	// multiply colour by the colour multiplier
+		vec3 n = normalize(getNormal2Shape( s, shapeID ));
 		nD -= 2.0*dot(nD, n)*n; // should already be normalized; alternative: reflect( normalize(d), vec3(1,0,1));
 		return true;	// keep raytracing
 	}
-	else if( sceneObjects[sceneObjectIndex].surfaceType == THIN_FOCUSSING_SURFACE ) {
+	else if( surfaceID.type == THIN_FOCUSSING_SURFACE ) {
 		return interactWithThinFocussingSurface(
 			s,	// intersection position; out value becomes new ray start point
 			nD,	// normalised ray direction 
 			c,	// colour/brightness
-			normalize(getNormal2SceneObject( s, sceneObjectIndex )),	// normalised (outwards-facing) normal
-			sceneObjects[sceneObjectIndex].surfaceIndex	// thinFocussingSurfaceIndex
+			normalize(getNormal2Shape( s, shapeID )),	// normalised (outwards-facing) normal
+			surfaceID.index
 		);
 	}
-	else if( sceneObjects[sceneObjectIndex].surfaceType == CHECKERBOARD_SURFACE ) {
-		CheckerboardSurface cs = checkerboardSurfaces[sceneObjects[sceneObjectIndex].surfaceIndex];
-		vec2 uv = getSurfaceCoordinatesOnSceneObject(
+	else if( surfaceID.type == CHECKERBOARD_SURFACE ) {
+		CheckerboardSurface cs = checkerboardSurfaces[surfaceID.index];
+		vec2 uv = getSurfaceCoordinatesOnShape(
 			s,	// position
-			sceneObjectIndex
+			shapeID
 		) / vec2(cs.width1, cs.width2);
 		// if( (2.*floor( mod( uv.x, 2. )) - 1.) * (2.*floor( mod( uv.y, 2. )) - 1.) == -1. ) {
-		uv = 2.*floor( mod( getSurfaceCoordinatesOnSceneObject(
+		uv = 2.*floor( mod( getSurfaceCoordinatesOnShape(
 			s,	// position
-			sceneObjectIndex
+			shapeID
 		) / vec2(cs.width1, cs.width2) , 2.)) - 1.;
 		if( uv.x * uv.y == -1. ) {
 		// if(mod(uv.x, 2.) < 1.) {
@@ -697,7 +872,7 @@ vec4 getColorOfBackground(
 	// float l = length(nD);
 	float phi = atan(nD.z, nD.x) + PI;
 	float theta = acos(nD.y);	// if light-ray direction is not normalised then nD.y/l
-	return texture2D(backgroundTexture, vec2(mod(phi/(2.*PI), 1.0), 1.-theta/PI));
+	return texture(backgroundTexture, vec2(mod(phi/(2.*PI), 1.0), 1.-theta/PI));
 }
 
 void main() {
@@ -720,10 +895,11 @@ void main() {
 		// current colour/brightness; will be multiplied by each surface's colour/brightness factor
 		vec4 c = vec4(1.0, 1.0, 1.0, 1.0);
 
+		ShapeID intersectedSimpleShapeID;
 		vec3 intersectionPosition;
 		float intersectionDistance;
-		int intersectingSceneObjectIndex;
-		int originSceneObjectIndex = -1;
+		int intersectedSceneObjectIndex;
+		ShapeID originShapeID = ShapeID(-1, -1);
 		int tl = maxTraceLevel;	// max trace level
 		bool continueRaytracing = true;
 		while(
@@ -732,8 +908,9 @@ void main() {
 			findIntersectionWithScene(
 				s, // ray start point, origin 
 				nD, // ray direction 
-				originSceneObjectIndex,	// originSceneObjectIndex
-				intersectingSceneObjectIndex,	// closestIntersectedSceneObjectIndex
+				originShapeID,	// originShapeID
+				intersectedSceneObjectIndex,	// closestIntersectedSceneObjectIndex
+				intersectedSimpleShapeID,	// in case the scene object is of type SOLID_GEOMETRY_TYPE
 				intersectionPosition,	// closestIntersectionPosition
 				intersectionDistance	// closestIntersectionDistance
 			) 
@@ -743,9 +920,11 @@ void main() {
 				s,	// ray start point, origin 
 				nD,	// ray direction 
 				c,	// brightness multiplier
-				intersectingSceneObjectIndex
+				sceneObjects[intersectedSceneObjectIndex].surfaceID,
+				intersectedSimpleShapeID
 			);
-			originSceneObjectIndex = intersectingSceneObjectIndex;
+			originShapeID = intersectedSimpleShapeID;
+			// TODO pass origin simple shape info to findIntersectionWithScene?
 		}
 
 		if( tl > 0 ) {
