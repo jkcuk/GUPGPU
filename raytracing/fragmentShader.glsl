@@ -48,7 +48,7 @@ precision highp float;
 
 
 const float TOO_FAR = 1e20;
-const float TOO_CLOSE = .5e-4;
+const float TOO_CLOSE = 1e-4;
 
 
 
