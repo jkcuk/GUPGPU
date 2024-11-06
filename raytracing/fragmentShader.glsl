@@ -5,10 +5,11 @@ precision highp float;
 // these constants must take the same values as those defined in Constants.js
 #define MAX_SCENE_OBJECTS 10
 
-#define MAX_CYLINDER_MANTLE_SHAPES 4
 #define MAX_RECTANGLE_SHAPES 10
 #define MAX_SPHERE_SHAPES 4
-#define MAX_SOLID_GEOMETRY_SHAPES 2
+#define MAX_CYLINDER_MANTLE_SHAPES 4
+#define MAX_PLANE_SHAPES 4
+#define MAX_SOLID_GEOMETRY_SHAPES 4
 
 #define MAX_CHECKERBOARD_SURFACES 2
 #define MAX_COLOUR_SURFACES 10
@@ -19,9 +20,10 @@ precision highp float;
 #define MAX_INTERSECTING_SHAPES 4
 
 // shapes
-#define CYLINDER_MANTLE_SHAPE 2
 #define RECTANGLE_SHAPE 0
 #define SPHERE_SHAPE 1
+#define CYLINDER_MANTLE_SHAPE 2
+#define PLANE_SHAPE 3
 #define SOLID_GEOMETRY_SHAPE 10
 
 // surfaces
@@ -39,6 +41,10 @@ precision highp float;
 // refraction types
 #define IDEAL_REFRACTION_TYPE 0
 #define PHASE_HOLOGRAM_REFRACTION_TYPE 1
+
+// background types
+#define TEXTURE_BACKGROUND_TYPE 0
+#define COLOUR_BACKGROUND_TYPE 1
 
 
 const float TOO_FAR = 1e20;
@@ -104,6 +110,12 @@ struct CylinderMantleShape {
 };
 uniform CylinderMantleShape cylinderMantleShapes[MAX_CYLINDER_MANTLE_SHAPES];
 
+struct PlaneShape {
+	vec3 pointOnPlane;
+	vec3 nNormal;
+};
+uniform PlaneShape planeShapes[MAX_PLANE_SHAPES];
+
 struct SolidGeometryShape {
 	ShapeID shapeIDs[MAX_INTERSECTING_SHAPES];
 	bool visible[MAX_INTERSECTING_SHAPES];
@@ -158,7 +170,9 @@ uniform ThinFocussingSurface thinFocussingSurfaces[MAX_THIN_FOCUSSING_SURFACES];
 uniform int maxTraceLevel;
 
 // background
+uniform int backgroundType;
 uniform sampler2D backgroundTexture;
+uniform vec4 backgroundColour;
 
 // the camera's wide aperture
 uniform float focusDistance;
@@ -183,12 +197,13 @@ bool findIntersectionWithRectangleShape(
 	out float intersectionDistance
 ) {
 	// if the ray is parallel to the rectangle; there is no intersection 
-	if (dot(nD, rectangleShapes[rectangleIndex].nNormal) == 0.) {
+	float d = dot(nD, rectangleShapes[rectangleIndex].nNormal);
+	if (d == 0.) {
 		return false;
 	}
 	
 	// calculate delta to check for intersections 
-	float delta = dot(rectangleShapes[rectangleIndex].corner - s, rectangleShapes[rectangleIndex].nNormal) / dot(nD, rectangleShapes[rectangleIndex].nNormal);
+	float delta = dot(rectangleShapes[rectangleIndex].corner - s, rectangleShapes[rectangleIndex].nNormal) / d;
 	if (delta<0.) {
 		// intersection with rectangle is in backward direction
 		return false;
@@ -338,6 +353,32 @@ bool findIntersectionWithCylinderMantleShape(
 	return true;
 }
 
+bool findIntersectionWithPlaneShape(
+	vec3 s, // ray start point, origin 
+	vec3 nD, // normalised ray direction 
+	int planeIndex,
+	out vec3 intersectionPosition,
+	out float intersectionDistance
+) {
+	// if the ray is parallel to the plane there is no intersection 
+	float d = dot(nD, planeShapes[planeIndex].nNormal);
+	if (d == 0.) {
+		return false;
+	}
+	
+	// calculate delta to check for intersections 
+	float delta = dot(planeShapes[planeIndex].pointOnPlane - s, planeShapes[planeIndex].nNormal) / d;
+	if (delta<0.) {
+		// intersection with rectangle is in backward direction
+		return false;
+	}
+
+	// calculate the intersection position
+	intersectionPosition = s + delta*nD;
+	intersectionDistance = delta;	// if nD is not normalised: delta*length(nD);
+	return true;
+}
+
 /* A simple shape is any shape other than a SolidGeometryShape */
 bool findIntersectionWithSimpleShape(
 	in vec3 s, // ray start point, origin 
@@ -389,7 +430,21 @@ bool findIntersectionWithSimpleShape(
 			intersectionPosition,
 			intersectionDistance
 		);
-	} 
+	} else if(shapeID.type == PLANE_SHAPE ) {
+		// check if the ray originated on the same plane
+		if( originShapeID == shapeID ) {
+			// it did, but only a single intersection is possible, so no intersection
+			return false;
+		}
+
+		return findIntersectionWithPlaneShape(
+			s, // ray start point, origin 
+			nD, // normalised ray direction 
+			shapeID.index,	// plane shape index
+			intersectionPosition,
+			intersectionDistance
+		);
+	}
 	return false;
 }
 
@@ -448,12 +503,14 @@ bool findIntersectionWithSolidGeometryShape(
 		if( solidGeometryShapes[solidGeometryIndex].visible[i] ) {
 			// yes, it's visible; check if there is an intersection
 			vec3 sCurrent = s;
+			ShapeID lastIntersectedShapeID = originShapeID;
+			int remainingSteps = 4;	// a safety measure, which is hopefully not reqired
 			do {
 				tryAgain = false;
 				if( findIntersectionWithSimpleShape(
 					sCurrent,
 					nD,
-					originShapeID,
+					lastIntersectedShapeID,
 					solidGeometryShapes[solidGeometryIndex].shapeIDs[i],
 					currentIntersectionPosition,
 					currentIntersectionDistance
@@ -472,11 +529,12 @@ bool findIntersectionWithSolidGeometryShape(
 							// we need to check for further intersections with the same shape;
 							// advance the ray a little bit so that we don't get stuck in the loop
 							sCurrent = currentIntersectionPosition + TOO_CLOSE*nD;
+							lastIntersectedShapeID = solidGeometryShapes[solidGeometryIndex].shapeIDs[i];
 							tryAgain = true;
 						}
 					}
 				}
-			} while( tryAgain );
+			} while( tryAgain && (remainingSteps-- > 0) );
 		}
 	}
 	return ( intersectionDistance < TOO_FAR );
@@ -582,7 +640,6 @@ bool isInsideRectangleShape(
 	vec3 position,
 	int rectangleShapeIndex
 ) {
-	RectangleShape rectangleShape = rectangleShapes[ rectangleShapeIndex ];
 	// nNormal is, by definition, facing outwards
 	return ( dot( position - rectangleShapes[ rectangleShapeIndex ].corner, rectangleShapes[ rectangleShapeIndex ].nNormal ) <= 0. );
 }
@@ -615,6 +672,17 @@ bool isInsideCylinderMantleShape(
 	return false;
 }
 
+// the outside of a plane is interpreted here as the side of the plane
+// to which the vector nNormal points (i.e. nNormal is a (normalised) *outwards-facing* normal)
+bool isInsidePlaneShape(
+	vec3 position,
+	int planeShapeIndex
+) {
+	// nNormal is, by definition, facing outwards
+	return ( dot( position - planeShapes[ planeShapeIndex ].pointOnPlane, planeShapes[ planeShapeIndex ].nNormal ) <= 0. );
+}
+
+
 /* this should never be called as isInside<...>Shape functions are intended for use in
 solid-geometry functions, and an isInsideSolidGeometryShape function call would result
 from adding a shape of type SOLID_GEOMETRY_SHAPE to a SolidGeometryShape, which is not
@@ -645,6 +713,11 @@ bool isInsideShape(
 		);
 	} else if(shapeID.type == CYLINDER_MANTLE_SHAPE ) {
 		return isInsideCylinderMantleShape(
+			position,
+			shapeID.index
+		);
+	} else if(shapeID.type == PLANE_SHAPE ) {
+		return isInsidePlaneShape(
 			position,
 			shapeID.index
 		);
@@ -692,6 +765,13 @@ vec3 getNormal2CylinderMantleShape(
 	return normalize( v - dot(v, cylinderMantleShapes[cylinderMantleShapeIndex].nAxis)*cylinderMantleShapes[cylinderMantleShapeIndex].nAxis );
 }
 
+vec3 getNormal2PlaneShape(
+	vec3 position,
+	int planeShapeIndex
+) {
+	return planeShapes[planeShapeIndex].nNormal;
+}
+
 // returns the normalised normal at the position
 vec3 getNormal2Shape(
 	vec3 position,
@@ -700,6 +780,7 @@ vec3 getNormal2Shape(
 	if( shapeID.type == RECTANGLE_SHAPE ) return getNormal2RectangleShape(position, shapeID.index);
 	else if( shapeID.type == SPHERE_SHAPE ) return getNormal2SphereShape(position, shapeID.index);
 	else if( shapeID.type == CYLINDER_MANTLE_SHAPE ) return getNormal2CylinderMantleShape(position, shapeID.index);
+	else if( shapeID.type == PLANE_SHAPE ) return getNormal2PlaneShape(position, shapeID.index);
 	return vec3(0, 1, 0);
 }
 
@@ -869,10 +950,14 @@ bool interactWithSurface(
 vec4 getColorOfBackground(
 	vec3 nD	// normalized light-ray direction
 ) {
-	// float l = length(nD);
-	float phi = atan(nD.z, nD.x) + PI;
-	float theta = acos(nD.y);	// if light-ray direction is not normalised then nD.y/l
-	return texture(backgroundTexture, vec2(mod(phi/(2.*PI), 1.0), 1.-theta/PI));
+	if( backgroundType == TEXTURE_BACKGROUND_TYPE ) {
+		// float l = length(nD);
+		float phi = atan(nD.z, nD.x) + PI;
+		float theta = acos(nD.y);	// if light-ray direction is not normalised then nD.y/l
+		return texture(backgroundTexture, vec2(mod(phi/(2.*PI), 1.0), 1.-theta/PI));
+	} else if ( backgroundType == COLOUR_BACKGROUND_TYPE ) {
+		return backgroundColour;
+	}
 }
 
 void main() {

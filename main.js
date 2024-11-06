@@ -35,6 +35,9 @@ import { SurfaceID } from './raytracing/SurfaceID.js';
 import { RectangleShape } from './raytracing/shapes/RectangleShape.js';
 import { SphereShape } from './raytracing/shapes/SphereShape.js';
 import { CylinderMantleShape } from './raytracing/shapes/CylinderMantleShape.js';
+import { PlaneShape } from './raytracing/shapes/PlaneShape.js';
+import { SolidGeometryShape } from './raytracing/shapes/SolidGeometryShape.js';
+
 import { ColourSurface } from './raytracing/surfaces/ColourSurface.js';
 import { MirrorSurface } from './raytracing/surfaces/MirrorSurface.js';
 import { ThinFocussingSurface } from './raytracing/surfaces/ThinFocussingSurface.js';
@@ -43,7 +46,6 @@ import { RefractingSurface } from './raytracing/surfaces/RefractingSurface.js';
 
 import { RaytracingScene } from './raytracing/RaytracingScene.js';
 import { RaytracingSphere } from './raytracing/RaytracingSphere.js';
-import { SolidGeometryShape } from './raytracing/shapes/SolidGeometryShape.js';
 
 // this works fine both locally and when deployed on github
 const fragmentShaderCodeFile = await fetch("./raytracing/fragmentShader.glsl");
@@ -131,8 +133,6 @@ function init() {
 	document.body.appendChild( renderer.domElement );
 	// document.getElementById('livePhoto').appendChild( renderer.domElement );
 
-	loadBackgroundImage();
-
 	// initRaytracingScene();
 	raytracingSphere = new RaytracingSphere(
 		raytracingSphereRadius, 
@@ -141,6 +141,8 @@ function init() {
 		fragmentShaderCode
 	);
 	scene.add( raytracingSphere );
+
+	loadBackgroundImage();
 
 	// addRaytracingSphere();
 
@@ -377,7 +379,12 @@ function initRaytracingScene() {
 		10,	// length
 		new THREE.Vector3(0, 0, 1).normalize()
 	);
+	let yPlaneSurface = raytracingScene.createPlaneShapeID(
+		new THREE.Vector3(0, 0.05, 0),	// pointOnPlane
+		new THREE.Vector3(1, 1, 0)	// outwards-facing normal
+	);
 	let lensShape = new SolidGeometryShape();
+	lensShape.addShape( yPlaneSurface, true, false, true );
 	// lensShape.addShape( xCylinderSurface, true, true, true );
 	lensShape.addShape( zCylinderSurface, true, true, true );
 	lensShape.addShape( lensSurface2, true, false, true );
@@ -495,6 +502,8 @@ function createUniforms() {
 
 	return {
 		maxTraceLevel: { value: 10 },
+		backgroundType: { value: CONST.COLOUR_BACKGROUND_TYPE },
+		backgroundColour: { value: new THREE.Vector4(1, 1, 1, 1) },
 		backgroundTexture: { value: backgroundTexture },
 		focusDistance: { value: 10.0 },
 		apertureXHat: { value: new THREE.Vector3(1, 0, 0) },
@@ -510,6 +519,7 @@ function createUniforms() {
 		rectangleShapes: { value: raytracingScene.rectangleShapes },
 		sphereShapes: { value: raytracingScene.sphereShapes },
 		cylinderMantleShapes: { value: raytracingScene.cylinderMantleShapes },
+		planeShapes: { value: raytracingScene.planeShapes },
 		solidGeometryShapes: { value: raytracingScene.solidGeometryShapes },
 		colourSurfaces: { value: raytracingScene.colourSurfaces },
 		mirrorSurfaces: { value: raytracingScene.mirrorSurfaces },
@@ -678,7 +688,7 @@ function createGUI() {
 			vrControlsVisibleControl.name( guiMeshVisible2String() );
 		},
 		background: function() {
-			background = (background + 1) % 5;
+			background = (background + 1) % 6;
 			loadBackgroundImage();
 			backgroundControl.name( background2String() );	
 		},
@@ -739,6 +749,7 @@ function background2String() {
 	case 2: return 'Mugdock';	// 'Mugdock Woods 6 Milngavie Scotland Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/3485817556
 	case 3: return 'Mugdock bluebells';	// 'Bluebells_13_Mugdock_Woods_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49889830418
 	case 4: return 'Glencoe';	// '360-180 The Glencoe Pass And The Three Sisters.jpg'	// https://www.flickr.com/photos/pano_philou/1140758031
+	case 5: return 'White background';
 	default: return 'Undefined';		
 		// 'Tower_University_Glasgow_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49890100126
 		// 'Saddle_05_Arran_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49889356918
@@ -752,11 +763,11 @@ function getBackgroundInfo() {
 		case 2: return '<a href="https://www.flickr.com/photos/gawthrop/3485817556"><i>Mugdock Woods 6 Milngavie Scotland Equirectangular</i></a> by Peter Gawthrop';	// https://www.flickr.com/photos/gawthrop/3485817556
 		case 3: return '<a href="https://www.flickr.com/photos/gawthrop/49889830418"><i>Bluebells_13_Mugdock_Woods_Scotland-Equirectangular</i></a> by Peter Gawthrop';	// 
 		case 4: return '<a href="https://www.flickr.com/photos/pano_philou/1140758031"><i>360-180 The Glencoe Pass And The Three Sisters</i></a> by pano_philou';	// https://www.flickr.com/photos/pano_philou/1140758031
+		case 5: return 'White background';
 		default: return 'Undefined';		
 			// 'Tower_University_Glasgow_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49890100126
 			// 'Saddle_05_Arran_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49889356918
-		}
-	
+		}	
 }
 
 function focussingType2String() {
@@ -774,6 +785,49 @@ function showSelfConjugatePlanes2String() {
 
 function guiMeshVisible2String() {
 	return 'VR controls '+(GUIMesh.visible?'visible':'hidden');
+}
+
+
+function loadBackgroundImage() {
+	const textureLoader = new THREE.TextureLoader();
+	// textureLoader.crossOrigin = "Anonymous";
+
+	let filename;
+	switch (background) { 
+		case 1: 
+			raytracingSphere.uniforms.backgroundType.value = CONST.TEXTURE_BACKGROUND_TYPE;
+			filename = './raytracing/backgrounds/360-180 Glasgow University - Eastern Square.jpg';	// https://www.flickr.com/photos/pano_philou/1141564032
+			backgroundTexture = textureLoader.load(filename);
+			break;
+		case 2: 
+			raytracingSphere.uniforms.backgroundType.value = CONST.TEXTURE_BACKGROUND_TYPE;
+			filename = './raytracing/backgrounds/Mugdock Woods 6 Milngavie Scotland Equirectangular.jpg';	// https://www.flickr.com/photos/gawthrop/3485817556
+			backgroundTexture = textureLoader.load(filename);
+			break;
+		case 3: 
+			raytracingSphere.uniforms.backgroundType.value = CONST.TEXTURE_BACKGROUND_TYPE;
+			filename = './raytracing/backgrounds/Bluebells_13_Mugdock_Woods_Scotland-Equirectangular.jpg';	// https://www.flickr.com/photos/gawthrop/49889830418
+			backgroundTexture = textureLoader.load(filename);
+			break;
+		case 4: 
+			raytracingSphere.uniforms.backgroundType.value = CONST.TEXTURE_BACKGROUND_TYPE;
+			filename = './raytracing/backgrounds/360-180 The Glencoe Pass And The Three Sisters.jpg';	// https://www.flickr.com/photos/pano_philou/1140758031
+			backgroundTexture = textureLoader.load(filename);
+			break;
+		case 5:
+			raytracingSphere.uniforms.backgroundType.value = CONST.COLOUR_BACKGROUND_TYPE;
+			raytracingSphere.uniforms.backgroundColour.value.copy( new THREE.Vector4(1, 1, 1, 1) );
+			break;
+		case 0: 
+		default:
+			raytracingSphere.uniforms.backgroundType.value = CONST.TEXTURE_BACKGROUND_TYPE;
+			filename = './raytracing/backgrounds/360-180 Glasgow University - Western Square.jpg';	// https://www.flickr.com/photos/pano_philou/1041580126
+			backgroundTexture = textureLoader.load(filename);
+			// 'Tower_University_Glasgow_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49890100126
+			// 'Saddle_05_Arran_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49889356918
+		}
+
+	// backgroundTexture = textureLoader.load(filename);
 }
 
 function addXRInteractivity() {
@@ -883,34 +937,6 @@ function createVideoFeeds() {
 	} else {
 		postStatus( 'MediaDevices interface, which is required for video streams from device cameras, not available.' );
 	}
-}
-
-function loadBackgroundImage() {
-	const textureLoader = new THREE.TextureLoader();
-	// textureLoader.crossOrigin = "Anonymous";
-
-	let filename;
-	switch (background) { 
-		case 1: 
-			filename = './raytracing/backgrounds/360-180 Glasgow University - Eastern Square.jpg';	// https://www.flickr.com/photos/pano_philou/1141564032
-			break;
-		case 2: 
-			filename = './raytracing/backgrounds/Mugdock Woods 6 Milngavie Scotland Equirectangular.jpg';	// https://www.flickr.com/photos/gawthrop/3485817556
-			break;
-		case 3: 
-			filename = './raytracing/backgrounds/Bluebells_13_Mugdock_Woods_Scotland-Equirectangular.jpg';	// https://www.flickr.com/photos/gawthrop/49889830418
-			break;
-		case 4: 
-			filename = './raytracing/backgrounds/360-180 The Glencoe Pass And The Three Sisters.jpg';	// https://www.flickr.com/photos/pano_philou/1140758031
-			break;
-		case 0: 
-		default:
-			filename = './raytracing/backgrounds/360-180 Glasgow University - Western Square.jpg';	// https://www.flickr.com/photos/pano_philou/1041580126
-			// 'Tower_University_Glasgow_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49890100126
-			// 'Saddle_05_Arran_Scotland-Equirectangular.jpg'	// https://www.flickr.com/photos/gawthrop/49889356918
-		}
-
-	backgroundTexture = textureLoader.load(filename);
 }
 
 function addEventListenersEtc() {

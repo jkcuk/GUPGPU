@@ -8,6 +8,7 @@ import { SurfaceID } from './SurfaceID.js';
 import { RectangleShape } from './shapes/RectangleShape.js';
 import { SphereShape } from './shapes/SphereShape.js';
 import { CylinderMantleShape } from './shapes/CylinderMantleShape.js';
+import { PlaneShape } from './shapes/PlaneShape.js';
 import { SolidGeometryShape } from './shapes/SolidGeometryShape.js';
 
 import { ColourSurface } from './surfaces/ColourSurface.js';
@@ -31,22 +32,26 @@ class RaytracingScene {
 	cylinderMantleShapes = Array(CONST.MAX_CYLINDER_MANTLE_SHAPES).fill( CylinderMantleShape.xCylinderMantleShape );	// the cylinder mantle shapes
 	noOfCylinderMantleShapes = 0;
 
+	planeShapes = Array(CONST.MAX_PLANE_SHAPES).fill( PlaneShape.zPlaneShape );
+	noOfPlaneShapes = 0;
+
 	solidGeometryShapes = Array(CONST.MAX_SOLID_GEOMETRY_SHAPES).fill( new SolidGeometryShape() );
 	noOfSolidGeometryShapes = 0;
 
 	// to add a new shape type:
 	// 1) create a class that holds the parameters of the shape (e.g. class SphereShape, defined in SphereShape.js)
 	// 2) import this class at the top of RaytracingScene.js and main.js
-	// 3) add to the RaytracingScene class
-	//    * a const that specifies the max. number of instances of this shape (e.g. MAX_SPHERE_SHAPES)
-	//    * a static int that uniquely identifies the shape type (e.g. SPHERE_SHAPE)
+	// 3) add to the Constants class
+	//    * a const int that specifies the max. number of instances of this shape (e.g. MAX_SPHERE_SHAPES)
+	//    * a const int that uniquely identifies the shape type (e.g. SPHERE_SHAPE)
+	// 4) add to the RaytracingScene class
 	//    * an array of the instances of the shape (e.g. sphereShapes), and initialise it to hold the max. number of objects
 	//      representing the shape
 	//    * an int that holds the number of instances of that shape, initialised to 0 (e.g. noOfSphereShapes)
 	//    * a method that allows adding an instance of the shape (e.g. addSphereShape)
 	//    * a corresponding line in the getSceneSummary class
-	// 4) in main.js, in the createUniforms function, add a uniform that holds the array of the instances of the shape
-	// 5) in fragmentShader.glsl,
+	// 5) in main.js, in the createUniforms function, add a uniform that holds the array of the instances of the shape
+	// 6) in fragmentShader.glsl,
 	//    * #define a constant that specifies the max. number of instances of this shape (e.g. MAX_SPHERE_SHAPES)
 	//      (which has the same value as the corresponding const in the RaytracingScene class)
 	//    * #define a constant that uniquely identifies the shape type (e.g. SPHERE_SHAPE)
@@ -54,11 +59,11 @@ class RaytracingScene {
 	//    * define a struct that represents the properties of the class holding the shape parameters (e.g. SphereShape)
 	//    * define a uniform array of instances of this struct, array length max. number of instances (e.g. sphereShapes)
 	//    * add a findIntersectionWith<shape> method (e.g. findIntersectionWithSphereShape) and link it into the body of the
-	//      findIntersectionWithSceneObject method
+	//      findIntersectionWithSimpleShape function
 	//    * add a isInside<shape> method (e.g. isInsideSphereShape) and link it into the body of the
-	//      isInsideSceneObject method
+	//      isInsideShape function
 	//    * add a getNormalTo<shape> method (e.g. getNormalToSphereShape) and link it into the body of the
-	//      getNormal method
+	//      getNormal function
 
 
 	// the surfaces
@@ -129,6 +134,14 @@ class RaytracingScene {
 		return this.noOfRectangleShapes++;
 	}
 
+	createRectangleShapeID( corner, span1, span2 ) {
+		return new ShapeID(
+			CONST.RECTANGLE_SHAPE,
+			this.addRectangleShape( RectangleShape.getRectangleShape( corner, span1, span2 ) )
+		);
+	}
+
+
 	// add a new sphere shape and return its index
 	addSphereShape( sphereShape ) {
 		if(this.noOfSphereShapes >= CONST.MAX_SPHERE_SHAPES) {
@@ -169,6 +182,26 @@ class RaytracingScene {
 		);
 	}
 
+	// add a new plane shape and return its index
+	addPlaneShape( planeShape ) {
+		if(this.noOfPlaneShapes >= CONST.MAX_PLANE_SHAPES) {
+			throw new Error( "Number of plane shapes ("+this.noOfPlaneShapes+") exceeds CONST.MAX_PLANE_SHAPES ("+CONST.MAX_PLANE_SHAPES+").");
+		}
+
+		// add the new plane shape
+		this.planeShapes[this.noOfPlaneShapes] = planeShape;
+		
+		// return its array index
+		return this.noOfPlaneShapes++;
+	}
+
+	createPlaneShapeID( pointOnPlane, normal ) {
+		return new ShapeID(
+			CONST.PLANE_SHAPE,
+			this.addPlaneShape( new PlaneShape( pointOnPlane, normal ) )
+		);
+	}
+
 	// add a new solid-geometry shape and return its index
 	addSolidGeometryShape( solidGeometryShape ) {
 		if(this.noOfSolidGeometryShapes >= CONST.MAX_SOLID_GEOMETRY_SHAPES) {
@@ -181,6 +214,14 @@ class RaytracingScene {
 		// return its array index
 		return this.noOfSolidGeometryShapes++;
 	}
+
+	createSolidGeometryShapeID( solidGeometryShape ) {
+		return new ShapeID(
+			CONST.SOLID_GEOMETRY_SHAPE,
+			this.addSolidGeometryShape( solidGeometryShape )
+		);
+	}
+
 
 	//
 	// add surfaces
@@ -198,6 +239,13 @@ class RaytracingScene {
 		// return its array index
 		return this.noOfColourSurfaces++;
 	}
+
+	createColourSurfaceID( colourFactor, semitransparent ) {
+		return new SurfaceID(
+			CONST.COLOUR_SURFACE,
+			this.addColourSurface( new ColourSurface( colourFactor, semitransparent ) )
+		);
+	}
 	
 	// add a new mirror surface and return its index
 	addMirrorSurface( mirrorSurface ) {
@@ -211,6 +259,13 @@ class RaytracingScene {
 		
 		// return its array index
 		return this.noOfMirrorSurfaces++;
+	}
+
+	createMirrorSurfaceID( colourFactor ) {
+		return new SurfaceID(
+			CONST.MIRROR_SURFACE,
+			this.addMirrorSurface( new MirrorSurface( colourFactor ) )
+		);
 	}
 
 	// add a new thin focussing surface and return its index
@@ -253,15 +308,16 @@ class RaytracingScene {
 	}
 
 	getSceneSummary() {
-		return  this.noOfSceneObjects + " scene object(s),\n" +
-		 this.noOfRectangleShapes + " rectangle(s),\n" +
-		 this.noOfSphereShapes + " sphere(s),\n" +
-		 this.noOfCylinderMantleShapes + " cylinder(s),\n" +
-		 this.noOfSolidGeometryShapes + " solid-geometry shape(s),\n" +
-		 this.noOfColourSurfaces + " colour surface(s),\n" +
-		 this.noOfThinFocussingSurfaces + " thin focussing surface(s),\n" +
-		 this.noOfCheckerboardSurfaces + " checkerboard surface(s),\n" +
-		 this.noOfRefractingSurfaces + " refracting surface(s)";
+		return  this.noOfSceneObjects + "/" + CONST.MAX_SCENE_OBJECTS + " scene object(s),\n" +
+		 this.noOfRectangleShapes + "/" + CONST.MAX_RECTANGLE_SHAPES+ " rectangle(s),\n" +
+		 this.noOfSphereShapes + "/" + CONST.MAX_SPHERE_SHAPES+ " sphere(s),\n" +
+		 this.noOfCylinderMantleShapes + "/" + CONST.MAX_CYLINDER_MANTLE_SHAPES+ " cylinder(s),\n" +
+		 this.noOfPlaneShapes + "/" + CONST.MAX_PLANE_SHAPES+ " plane(s),\n" +
+		 this.noOfSolidGeometryShapes + "/" + CONST.MAX_SOLID_GEOMETRY_SHAPES+ " solid-geometry shape(s),\n" +
+		 this.noOfColourSurfaces + "/" + CONST.MAX_COLOUR_SURFACES+ " colour surface(s),\n" +
+		 this.noOfThinFocussingSurfaces + "/" + CONST.MAX_THIN_FOCUSSING_SURFACES+ " thin focussing surface(s),\n" +
+		 this.noOfCheckerboardSurfaces + "/" + CONST.MAX_CHECKERBOARD_SURFACES+ " checkerboard surface(s),\n" +
+		 this.noOfRefractingSurfaces + "/" + CONST.MAX_REFRACTING_SURFACES+ " refracting surface(s)";
 	}
 }
 
